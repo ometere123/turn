@@ -9,6 +9,10 @@ export interface CounterConfig {
   createdAt: number
 }
 
+export interface MerchantCounter extends CounterConfig {
+  id: string
+}
+
 export type ReceiptStatus = 'submitted' | 'active' | 'refunded'
 
 export interface TurnReceipt {
