@@ -53,7 +53,22 @@ test('counter links round-trip without trusting local state', () => {
   assert.equal(parsed.merchantAddress, address)
 })
 
-test('return links only carry the deposit transaction hash', () => {
+test('testnet mode is preserved in counter and return handoff links', () => {
+  const counterLink = buildCounterLink('https://turn.example/?network=testnet', {
+    version: 1,
+    merchantName: 'Loop Coffee',
+    itemName: 'Reusable cup',
+    merchantAddress: address,
+    depositLuna: 100_000,
+    createdAt: 1,
+  })
+  assert.equal(new URL(counterLink).searchParams.get('network'), 'testnet')
+
+  const returnLink = buildReturnLink('https://turn.example/?network=testnet', 'a'.repeat(64))
+  assert.equal(new URL(returnLink).searchParams.get('network'), 'testnet')
+})
+
+test('return links only carry the deposit transaction hash as financial authority', () => {
   const hash = 'a'.repeat(64)
   const link = buildReturnLink('https://turn.example/', hash)
   assert.equal(parseReturnReference(link), hash)
