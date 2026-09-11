@@ -4,6 +4,8 @@ The automated suite is necessary but not sufficient. Wallet, camera, WebView, an
 
 Production URL: https://turn-nimiq.vercel.app/
 
+Testnet acceptance URL: https://turn-nimiq.vercel.app/?network=testnet
+
 ## Automated
 
 | Area | Case | Expected |
@@ -16,40 +18,48 @@ Production URL: https://turn-nimiq.vercel.app/
 | protocol | raw transaction data | hex decodes to marker |
 | protocol | counter URL | public counter fields round-trip |
 | protocol | return URL | only transaction hash is authoritative |
+| protocol | testnet handoff | `network=testnet` survives counter and return links |
 | network | `MainAlbatross` vs `main-albatross` | treated as same network |
 | storage | save two counters | both remain independently available |
 | storage | edit one counter | the other saved counters remain unchanged |
 | storage | delete one counter | only that local configuration is removed |
 | storage | legacy single counter | migrates automatically into the saved counter list |
+| storage | receipt namespaces | mainnet and testnet receipts use separate local keys |
+| storage | legacy receipts | migrate into the mainnet namespace |
 
 ## Real-device release gate
 
-Run the full flow inside the current Nimiq Pay app with two different wallets. Use Testnet first if the current app supports switching to TestAlbatross, then repeat one tiny deposit/refund smoke cycle on MainAlbatross before final submission.
+Run the full flow inside the current Nimiq Pay app with two different wallets.
+
+For the first pass, switch **both Nimiq Pay wallets to Testnet** and open the exact Testnet acceptance URL above. turn will use `TestAlbatross` for independent verification and generated counter/return links will keep the testnet flag. Do not use the plain production URL for the Testnet pass because the plain URL intentionally verifies MainAlbatross.
+
+After Testnet passes, switch Nimiq Pay back to Mainnet and repeat one tiny deposit/refund smoke cycle using the canonical production URL.
 
 | # | Test | Pass condition |
 |---|---|---|
-| 1 | open production HTTPS URL in Nimiq Pay | provider initialises and the app shows Nimiq Pay rather than Preview |
+| 1 | open Testnet acceptance URL in Testnet Nimiq Pay | provider initialises and turn uses the TestAlbatross verifier |
 | 2 | authorise merchant wallet | native account confirmation appears; rejecting it returns controlled UI |
 | 3 | create first counter | selected receiving account, merchant, item, and amount display correctly |
 | 4 | create second counter | both counters remain listed and independently selectable |
 | 5 | refresh merchant screen | all saved counters remain available |
 | 6 | switch between counters | selected QR, item, amount, and wallet match the chosen counter |
 | 7 | edit one counter | edited values persist without overwriting the other counter |
-| 8 | customer scans selected counter QR | correct merchant, item, amount, and receiving address are shown before approval |
+| 8 | customer scans selected counter QR | testnet flag persists and correct merchant, item, amount, and receiving address are shown before approval |
 | 9 | cancel deposit | nothing is marked paid; retry remains available |
-| 10 | make tiny deposit | native approval succeeds and SDK returns a transaction hash |
-| 11 | verify deposit | light client reaches consensus and finds the included transaction with exact recipient, value, network, and deposit marker |
-| 12 | reload customer | submitted/active receipt remains available on the device |
-| 13 | recover by transaction hash | receipt reconstructs authoritative financial state from chain |
+| 10 | make tiny testnet deposit | native approval succeeds and SDK returns a transaction hash |
+| 11 | verify deposit | light client reaches TestAlbatross consensus and finds the included transaction with exact recipient, value, network, and deposit marker |
+| 12 | reload customer | submitted/active testnet receipt remains available on the device |
+| 13 | recover by transaction hash | receipt reconstructs authoritative financial state from TestAlbatross |
 | 14 | camera denied | paste fallback remains fully usable |
 | 15 | merchant scans return receipt | original customer, merchant, amount, and nonce are derived from chain rather than QR fields |
 | 16 | wrong merchant wallet authorised | refund review refuses to proceed for a deposit received by another merchant wallet |
 | 17 | cancel refund | deposit remains refundable and no completion state is shown |
-| 18 | make exact refund | native approval sends the original amount to the original customer with the matching refund marker |
+| 18 | make exact testnet refund | native approval sends the original amount to the original customer with the matching refund marker |
 | 19 | verify refund | included matching transaction marks the receipt complete |
 | 20 | scan receipt again | app reports the existing refund and does not request another payment |
 | 21 | delete an unused counter | only that local counter disappears; the other counters remain usable |
-| 22 | repeat one tiny cycle on MainAlbatross | production payment and refund loop completes end to end |
+| 22 | open canonical production URL after switching Nimiq Pay back to Mainnet | testnet receipts do not appear in the mainnet receipt list |
+| 23 | repeat one tiny cycle on MainAlbatross | production payment and refund loop completes end to end |
 
 ## Adversarial checks
 
