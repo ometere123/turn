@@ -23,6 +23,7 @@ export interface TurnReceipt {
   itemName: string
   merchantAddress: string
   depositLuna: number
+  refundAddress?: string
   createdAt: number
   status: ReceiptStatus
   refundTxHash?: string
@@ -49,6 +50,7 @@ export interface VerifiedDeposit {
   recipient: string
   valueLuna: number
   nonce: string
+  refundAddress?: string
   blockHeight?: number
   confirmations?: number
 }
