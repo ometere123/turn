@@ -26,6 +26,7 @@ export function getProvider() {
 export async function listAccounts(): Promise<string[]> {
   const provider = await getProvider()
   const accounts = await provider.listAccounts()
+  if (!Array.isArray(accounts)) throw providerResponseError(accounts, 'Wallet account access failed.')
   return accounts.map(normaliseAddress)
 }
 
@@ -48,20 +49,24 @@ export async function getClient(): Promise<Nimiq.Client> {
 
 export async function sendDeposit(counter: CounterConfig, nonce: string): Promise<string> {
   const provider = await getProvider()
-  return provider.sendBasicTransactionWithData({
+  const result = await provider.sendBasicTransactionWithData({
     recipient: counter.merchantAddress,
     value: counter.depositLuna,
     data: depositMemo(nonce),
   })
+  if (typeof result !== 'string') throw providerResponseError(result, 'Deposit request failed.')
+  return result
 }
 
 export async function sendRefund(deposit: VerifiedDeposit): Promise<string> {
   const provider = await getProvider()
-  return provider.sendBasicTransactionWithData({
+  const result = await provider.sendBasicTransactionWithData({
     recipient: deposit.sender,
     value: deposit.valueLuna,
     data: refundMemo(deposit.nonce),
   })
+  if (typeof result !== 'string') throw providerResponseError(result, 'Refund request failed.')
+  return result
 }
 
 export async function waitForDeposit(
@@ -154,6 +159,14 @@ export async function validateAddress(address: string): Promise<boolean> {
   }
 }
 
+function providerResponseError(response: unknown, fallback: string): Error {
+  if (response && typeof response === 'object') {
+    const record = response as Record<string, unknown>
+    const message = [record.message, record.error, record.code].find((value) => typeof value === 'string')
+    if (typeof message === 'string' && message.trim()) return new Error(message)
+  }
+  return new Error(fallback)
+}
 
 function isIncluded(tx: ChainTransaction): boolean {
   return String(tx.state).toLowerCase() === 'included'
