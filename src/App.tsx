@@ -6,13 +6,11 @@ import {
   ChevronRight,
   CircleDollarSign,
   Clock3,
-  Coins,
   Copy,
   ExternalLink,
   History,
   LoaderCircle,
   PackageCheck,
-  QrCode,
   RefreshCw,
   RotateCcw,
   ScanLine,
@@ -24,8 +22,8 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { QrPanel } from './components/QrPanel.tsx'
-import { copyText } from './lib/browser.ts'
 import { ScannerModal } from './components/ScannerModal.tsx'
+import { copyText } from './lib/browser.ts'
 import {
   NETWORK,
   findExistingRefund,
@@ -81,12 +79,14 @@ export function App() {
     [merchantCounters, merchantCounterId],
   )
   const [merchantAccounts, setMerchantAccounts] = useState<string[]>([])
+  const [customerAccounts, setCustomerAccounts] = useState<string[]>([])
+  const [customerRefundAddress, setCustomerRefundAddress] = useState('')
   const [receipts, setReceipts] = useState<TurnReceipt[]>(() => loadReceipts())
   const [selectedReceipt, setSelectedReceipt] = useState<TurnReceipt | null>(null)
   const [returnReview, setReturnReview] = useState<ReturnReview | null>(null)
   const [busy, setBusy] = useState<BusyState>('idle')
-  const [notice, setNotice] = useState<string>('')
-  const [error, setError] = useState<string>('')
+  const [notice, setNotice] = useState('')
+  const [error, setError] = useState('')
   const [scanner, setScanner] = useState<'counter' | 'return' | null>(null)
   const [showSetup, setShowSetup] = useState(false)
   const [editingCounterId, setEditingCounterId] = useState<string | null>(null)
@@ -127,6 +127,25 @@ export function App() {
     // URL parsing is intentionally mount-only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  async function authoriseCustomerRefundAddress() {
+    clearMessages()
+    setBusy('wallet')
+    try {
+      const accounts = await listAccounts()
+      if (accounts.length === 0) throw new Error('No Nimiq account is available to receive the refund.')
+      setCustomerAccounts(accounts)
+      const existing = accounts.find((account) => normaliseAddress(account) === normaliseAddress(customerRefundAddress))
+      const refundAddress = normaliseAddress(existing ?? accounts[0] ?? '')
+      if (!(await validateAddress(refundAddress))) throw new Error('Nimiq Pay returned an invalid refund address.')
+      setCustomerRefundAddress(refundAddress)
+      setNotice(`Refund address authorised: ${shortAddress(refundAddress)}.`)
+    } catch (caught) {
+      setError(walletMessage(caught, 'Refund address access'))
+    } finally {
+      setBusy('idle')
+    }
+  }
 
   async function openMerchantSession() {
     clearMessages()
@@ -219,12 +238,20 @@ export function App() {
       setError('Open turn inside Nimiq Pay to approve a deposit.')
       return
     }
+    if (!customerRefundAddress) {
+      setError('Authorise the Nimiq address that should receive your refund before paying.')
+      return
+    }
     setBusy('wallet')
     const nonce = newNonce()
     let submitted = false
     try {
       if (!(await validateAddress(counter.merchantAddress))) throw new Error('This counter has an invalid Nimiq address.')
-      const txHash = await sendDeposit(counter, nonce)
+      const refundAddress = normaliseAddress(customerRefundAddress)
+      if (!customerAccounts.some((account) => normaliseAddress(account) === refundAddress)) {
+        throw new Error('Authorise your refund address again before paying.')
+      }
+      const txHash = await sendDeposit(counter, nonce, refundAddress)
       submitted = true
       const receipt: TurnReceipt = {
         version: 1,
@@ -234,6 +261,7 @@ export function App() {
         itemName: counter.itemName,
         merchantAddress: counter.merchantAddress,
         depositLuna: counter.depositLuna,
+        refundAddress,
         createdAt: Date.now(),
         status: 'submitted',
       }
@@ -244,8 +272,14 @@ export function App() {
         recipient: counter.merchantAddress,
         valueLuna: counter.depositLuna,
         nonce,
+        refundAddress,
       })
-      const active = { ...receipt, txHash: verified.txHash, status: 'active' as const }
+      const active: TurnReceipt = {
+        ...receipt,
+        txHash: verified.txHash,
+        refundAddress: verified.refundAddress ?? refundAddress,
+        status: 'active',
+      }
       setReceipts(upsertReceipt(active))
       setSelectedReceipt(active)
       setNotice('Deposit confirmed. Keep this return receipt.')
@@ -265,10 +299,12 @@ export function App() {
         recipient: receipt.merchantAddress,
         valueLuna: receipt.depositLuna,
         nonce: receipt.nonce,
+        ...(receipt.refundAddress ? { refundAddress: receipt.refundAddress } : {}),
       }, 20_000)
       const refund = await findExistingRefund(deposit)
       const next: TurnReceipt = {
         ...receipt,
+        refundAddress: deposit.refundAddress ?? receipt.refundAddress,
         status: refund ? 'refunded' : 'active',
         refundTxHash: refund?.transactionHash?.toLowerCase(),
       }
@@ -288,9 +324,17 @@ export function App() {
     try {
       const txHash = parseReturnReference(reference)
       const deposit = await waitForDeposit(txHash, undefined, 20_000)
+      if (!deposit.refundAddress) {
+        throw new Error('This older deposit has no customer-authorised refund address. Use a fresh turn deposit.')
+      }
       const refund = await findExistingRefund(deposit)
       const known = receipts.find((receipt) => receipt.txHash === deposit.txHash)
-      const receipt: TurnReceipt = known ?? {
+      const receipt: TurnReceipt = known ? {
+        ...known,
+        refundAddress: deposit.refundAddress,
+        status: refund ? 'refunded' : 'active',
+        refundTxHash: refund?.transactionHash?.toLowerCase(),
+      } : {
         version: 1,
         txHash: deposit.txHash,
         nonce: deposit.nonce,
@@ -298,6 +342,7 @@ export function App() {
         itemName: 'Returnable item',
         merchantAddress: deposit.recipient,
         depositLuna: deposit.valueLuna,
+        refundAddress: deposit.refundAddress,
         createdAt: Date.now(),
         status: refund ? 'refunded' : 'active',
         refundTxHash: refund?.transactionHash?.toLowerCase(),
@@ -324,6 +369,9 @@ export function App() {
       }
       const txHash = parseReturnReference(reference)
       const deposit = await waitForDeposit(txHash, undefined, 20_000)
+      if (!deposit.refundAddress) {
+        throw new Error('This older deposit has no customer-authorised refund address. Do not refund it through turn; ask the customer to make a fresh deposit.')
+      }
       const ownsRecipient = accounts.some((account) => normaliseAddress(account) === normaliseAddress(deposit.recipient))
       if (!ownsRecipient) {
         throw new Error('This deposit was paid to a different merchant wallet. Authorise the wallet that originally received it.')
@@ -352,6 +400,7 @@ export function App() {
     }
     setBusy('refund-wallet')
     try {
+      if (!deposit.refundAddress) throw new Error('This deposit does not contain a customer-authorised refund address.')
       const latestExisting = await findExistingRefund(deposit)
       if (latestExisting) {
         setReturnReview({ deposit, alreadyRefunded: true, refundTxHash: latestExisting.transactionHash.toLowerCase() })
@@ -392,6 +441,8 @@ export function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scanner, merchantAccounts])
 
+  const networkLabel = NETWORK === 'TestAlbatross' ? 'Testnet · Nimiq Pay' : 'Nimiq Pay'
+
   return (
     <div className="app-shell">
       <div className="ambient ambient--one" aria-hidden="true" />
@@ -404,7 +455,7 @@ export function App() {
         </button>
         <div className={`network-pill network-pill--${providerState}`}>
           <span className="status-dot" />
-          {providerState === 'ready' ? 'Nimiq Pay' : providerState === 'checking' ? 'checking' : 'preview'}
+          {providerState === 'ready' ? networkLabel : providerState === 'checking' ? 'Checking' : 'Preview'}
         </div>
       </header>
 
@@ -416,7 +467,17 @@ export function App() {
           selectedReceipt ? (
             <ReceiptView receipt={selectedReceipt} busy={busy} onBack={() => setSelectedReceipt(null)} onRefresh={() => void refreshReceipt(selectedReceipt)} />
           ) : counter ? (
-            <CounterCheckout counter={counter} busy={busy} providerState={providerState} onBack={() => setCounter(null)} onPay={() => void payDeposit()} />
+            <CounterCheckout
+              counter={counter}
+              busy={busy}
+              providerState={providerState}
+              accounts={customerAccounts}
+              refundAddress={customerRefundAddress}
+              onRefundAddress={setCustomerRefundAddress}
+              onAuthorise={() => void authoriseCustomerRefundAddress()}
+              onBack={() => setCounter(null)}
+              onPay={() => void payDeposit()}
+            />
           ) : (
             <CustomerHome receipts={receipts} providerState={providerState} busy={busy} onScan={() => setScanner('counter')} onOpenReceipt={setSelectedReceipt} onRecover={(value) => void recoverReceipt(value)} />
           )
@@ -537,10 +598,14 @@ function CustomerHome({
   )
 }
 
-function CounterCheckout({ counter, busy, providerState, onBack, onPay }: {
+function CounterCheckout({ counter, busy, providerState, accounts, refundAddress, onRefundAddress, onAuthorise, onBack, onPay }: {
   counter: CounterConfig
   busy: BusyState
   providerState: ProviderState
+  accounts: string[]
+  refundAddress: string
+  onRefundAddress: (value: string) => void
+  onAuthorise: () => void
   onBack: () => void
   onPay: () => void
 }) {
@@ -558,17 +623,32 @@ function CounterCheckout({ counter, busy, providerState, onBack, onPay }: {
         <div className="amount-panel">
           <span>Refundable deposit</span>
           <strong>{amount} <small>NIM</small></strong>
-          <p>You pay the merchant now. Return the item and they send this exact amount back to the same wallet.</p>
+          <p>You pay the merchant now. Before payment, turn binds your authorised Nimiq refund address to this deposit on-chain.</p>
         </div>
-        <div className="address-row"><span>To</span><code>{shortAddress(counter.merchantAddress)}</code></div>
-        <button className="button button--gold button--large" type="button" onClick={onPay} disabled={working || providerState !== 'ready'}>
-          {busy === 'wallet' ? <><LoaderCircle className="spin" size={19} /> Approve in Nimiq Pay</> : busy === 'chain' ? <><LoaderCircle className="spin" size={19} /> Confirming on-chain</> : <><WalletCards size={19} /> Pay {amount} NIM deposit</>}
-        </button>
+        <div className="address-row"><span>Pay to</span><code>{shortAddress(counter.merchantAddress)}</code></div>
+
+        {!refundAddress ? (
+          <button className="button button--quiet button--large" type="button" onClick={onAuthorise} disabled={working || providerState !== 'ready'}>
+            {busy === 'wallet' ? <><LoaderCircle className="spin" size={19} /> Authorising address</> : <><ShieldCheck size={19} /> Authorise refund address</>}
+          </button>
+        ) : (
+          <>
+            {accounts.length > 1 ? (
+              <div className="setup-form">
+                <label><span>Refund address</span><select value={refundAddress} onChange={(event) => onRefundAddress(event.target.value)}>{accounts.map((account) => <option key={account} value={account}>{shortAddress(account)}</option>)}</select></label>
+              </div>
+            ) : <div className="address-row"><span>Refund to</span><code>{shortAddress(refundAddress)}</code></div>}
+            <p className="field-note">Check this is your Nimiq receive address. The merchant will only be asked to refund this address.</p>
+            <button className="button button--gold button--large" type="button" onClick={onPay} disabled={working || providerState !== 'ready'}>
+              {busy === 'wallet' ? <><LoaderCircle className="spin" size={19} /> Approve in Nimiq Pay</> : busy === 'chain' ? <><LoaderCircle className="spin" size={19} /> Confirming on-chain</> : <><WalletCards size={19} /> Pay {amount} NIM deposit</>}
+            </button>
+          </>
+        )}
         {providerState !== 'ready' ? <p className="field-note">Open this counter inside Nimiq Pay to pay.</p> : null}
       </section>
       <div className="trust-grid">
         <div><ShieldCheck /><strong>Direct payment</strong><span>turn never holds your NIM</span></div>
-        <div><RotateCcw /><strong>Same amount back</strong><span>Refund is checked against this deposit</span></div>
+        <div><RotateCcw /><strong>Bound refund</strong><span>Your authorised refund address is part of the deposit record</span></div>
       </div>
     </div>
   )
@@ -592,9 +672,10 @@ function ReceiptView({ receipt, busy, onBack, onRefresh }: {
         <h1>{receipt.itemName}</h1>
         <p className="receipt-merchant">{receipt.merchantName}</p>
         <div className="receipt-amount"><span>{receipt.status === 'refunded' ? 'Refunded' : 'Deposit'}</span><strong>{lunaToNim(receipt.depositLuna)} NIM</strong></div>
-        {active ? <QrPanel value={returnLink} label="Show this when you return it" helper="The merchant scans this receipt, verifies your deposit on Nimiq, then refunds it." shareTitle="turn return receipt" /> : null}
+        {receipt.refundAddress ? <div className="address-row"><span>Refund to</span><code>{shortAddress(receipt.refundAddress)}</code></div> : null}
+        {active ? <QrPanel value={returnLink} label="Show this when you return it" helper="The merchant scans this receipt, verifies your deposit and its bound refund address on Nimiq, then refunds it." shareTitle="turn return receipt" /> : null}
         {submitted ? <div className="pending-panel"><LoaderCircle className={busy === 'chain' ? 'spin' : ''} /><strong>Waiting for on-chain confirmation</strong><span>Your transaction hash is saved on this device.</span></div> : null}
-        {receipt.status === 'refunded' ? <div className="complete-panel"><CheckCircle2 /><div><strong>Deposit returned</strong><span>The matching refund was found on Nimiq.</span></div></div> : null}
+        {receipt.status === 'refunded' ? <div className="complete-panel"><CheckCircle2 /><div><strong>Deposit returned</strong><span>The matching refund to your bound address was found on Nimiq.</span></div></div> : null}
         <button className="button button--quiet" type="button" onClick={onRefresh} disabled={busy !== 'idle'}><RefreshCw size={17} className={busy === 'chain' ? 'spin' : ''} /> {receipt.status === 'refunded' ? 'Verify again' : 'Check status'}</button>
         <TxFootnote hash={receipt.txHash} label="Deposit transaction" />
         {receipt.refundTxHash ? <TxFootnote hash={receipt.refundTxHash} label="Refund transaction" /> : null}
@@ -681,7 +762,7 @@ function MerchantView(props: {
         <div className="return-action-icon"><RotateCcw /></div>
         <span className="eyebrow">item came back?</span>
         <h2>Scan the customer’s receipt.</h2>
-        <p>turn will verify the original deposit on Nimiq before any refund can be requested.</p>
+        <p>turn verifies the original deposit and the customer-authorised refund address on Nimiq before any refund can be requested.</p>
         {!merchantConnected ? (
           <button className="button button--gold button--large" type="button" onClick={onConnect} disabled={busy !== 'idle'}>{busy === 'wallet' ? <LoaderCircle className="spin" /> : <WalletCards />} Authorise refund wallet</button>
         ) : (
@@ -715,6 +796,7 @@ function MerchantView(props: {
 
 function ReturnReviewView({ review, busy, onBack, onRefund }: { review: ReturnReview; busy: BusyState; onBack: () => void; onRefund: () => void }) {
   const { deposit, alreadyRefunded } = review
+  const refundAddress = deposit.refundAddress ?? ''
   return (
     <div className="stack page-enter narrow">
       <button className="back-link" type="button" onClick={onBack}><ArrowLeft size={17} /> Return desk</button>
@@ -724,19 +806,20 @@ function ReturnReviewView({ review, busy, onBack, onRefund }: { review: ReturnRe
         <h1>{alreadyRefunded ? 'Refund already sent.' : 'Confirm the item is back.'}</h1>
         <div className="verification-table">
           <div><span>Original deposit</span><strong>{lunaToNim(deposit.valueLuna)} NIM</strong></div>
-          <div><span>Refund to</span><code>{shortAddress(deposit.sender)}</code></div>
+          <div><span>Refund to</span><code>{shortAddress(refundAddress)}</code></div>
           <div><span>Received by</span><code>{shortAddress(deposit.recipient)}</code></div>
           <div><span>Deposit tx</span><code>{shortHash(deposit.txHash)}</code></div>
         </div>
         {alreadyRefunded ? (
-          <div className="complete-panel"><CheckCircle2 /><div><strong>No second refund requested</strong><span>A matching refund is already included on-chain.</span></div></div>
+          <div className="complete-panel"><CheckCircle2 /><div><strong>No second refund requested</strong><span>A matching refund to the bound customer address is confirmed on-chain.</span></div></div>
         ) : (
           <>
             <div className="physical-check"><PackageCheck /><div><strong>Physical check</strong><span>Only continue after you have the returned item in hand.</span></div></div>
+            <p className="field-note">Refund destination {shortAddress(refundAddress)} was authorised by the customer and written into the original deposit.</p>
             <button className="button button--gold button--large" type="button" onClick={onRefund} disabled={busy !== 'idle'}>
               {busy === 'refund-wallet' ? <><LoaderCircle className="spin" /> Approve refund</> : busy === 'refund-chain' ? <><LoaderCircle className="spin" /> Confirming refund</> : <><CircleDollarSign /> Refund {lunaToNim(deposit.valueLuna)} NIM</>}
             </button>
-            <p className="field-note">Prefer the same Nimiq account that received the deposit ({shortAddress(deposit.recipient)}). The native approval screen shows the sending wallet.</p>
+            <p className="field-note">Use the merchant account that received the deposit ({shortAddress(deposit.recipient)}). Check the sending wallet on Nimiq Pay’s approval screen.</p>
           </>
         )}
         {review.refundTxHash ? <TxFootnote hash={review.refundTxHash} label="Refund transaction" /> : null}
