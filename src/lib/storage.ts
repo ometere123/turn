@@ -27,7 +27,9 @@ function isCounter(value: unknown): value is CounterConfig {
 }
 
 function isMerchantCounter(value: unknown): value is MerchantCounter {
-  return isCounter(value) && typeof (value as { id?: unknown }).id === 'string' && Boolean((value as { id: string }).id)
+  if (!isCounter(value)) return false
+  const id = (value as CounterConfig & { id?: unknown }).id
+  return typeof id === 'string' && id.length > 0
 }
 
 export function loadCounters(): MerchantCounter[] {
