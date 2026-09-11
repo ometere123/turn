@@ -10,7 +10,9 @@ import {
   refundMemo,
 } from './protocol.ts'
 
-export const NETWORK = import.meta.env.VITE_NIMIQ_NETWORK ?? 'MainAlbatross'
+const configuredNetwork = import.meta.env.VITE_NIMIQ_NETWORK ?? 'MainAlbatross'
+const requestedNetwork = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('network') : null
+export const NETWORK = requestedNetwork?.toLowerCase() === 'testnet' ? 'TestAlbatross' : configuredNetwork
 
 let providerPromise: ReturnType<typeof init> | null = null
 let clientPromise: Promise<Nimiq.Client> | null = null
