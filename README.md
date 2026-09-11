@@ -90,13 +90,27 @@ The Nimiq light client is wired through the official `@nimiq/core/vite` plugin.
 
 ### Network
 
-Production defaults to `MainAlbatross`.
+The canonical production URL defaults to `MainAlbatross`:
+
+```text
+https://turn-nimiq.vercel.app/
+```
+
+For wallet acceptance testing, switch Nimiq Pay itself to **Testnet** and open:
+
+```text
+https://turn-nimiq.vercel.app/?network=testnet
+```
+
+That query selects `TestAlbatross` for turn's independent Web Client verifier. Testnet mode is preserved automatically in generated counter and return links, so both merchant and customer remain on the same verification network during the handoff. The normal production URL without the query remains MainAlbatross.
+
+Mainnet and testnet customer receipts are stored under separate localStorage namespaces so acceptance testing cannot pollute the production receipt list. Saved merchant counter configurations can be reused on either network; the generated QR always follows the currently opened turn network.
+
+For local development you can also configure the default network directly:
 
 ```bash
 VITE_NIMIQ_NETWORK=MainAlbatross npm run dev
 ```
-
-For protocol work you can set `TestAlbatross`, but wallet-side network compatibility must be confirmed in the current Nimiq Pay build before attempting a payment.
 
 ### Secure-context note
 
