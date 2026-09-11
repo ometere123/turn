@@ -31,14 +31,20 @@ The merchant can:
 
 1. approve `listAccounts()` access;
 2. choose a receiving wallet;
-3. configure merchant name, item name, and NIM deposit;
-4. display/share a counter QR;
-5. scan or paste a customer return receipt;
-6. see an independently verified deposit before refunding;
-7. see the immutable refund destination and amount;
-8. confirm the physical item is back;
-9. request the exact NIM refund through Nimiq Pay;
-10. see completion only after turn verifies the refund transaction.
+3. create multiple saved counters on one device;
+4. configure merchant name, item name, NIM deposit, and receiving wallet independently for each counter;
+5. switch between saved counters and display/share the selected counter QR;
+6. edit a saved counter without overwriting the other counters;
+7. delete a local counter configuration without altering existing customer deposits or receipts;
+8. have the old single-counter local configuration migrated automatically into the counter list;
+9. scan or paste a customer return receipt;
+10. see an independently verified deposit before refunding;
+11. see the immutable refund destination and amount;
+12. confirm the physical item is back;
+13. request the exact NIM refund through Nimiq Pay;
+14. see completion only after turn verifies the refund transaction.
+
+Counters are local convenience configuration only. They are not accounts, inventory, or financial state.
 
 ## Product states
 
@@ -47,6 +53,13 @@ Customer receipt:
 - `submitted`
 - `active`
 - `refunded`
+
+Merchant counter:
+
+- saved
+- selected/open
+- creating
+- editing
 
 Merchant return review:
 
@@ -66,6 +79,8 @@ Merchant return review:
 - no infinite spinner without text;
 - QR always has paste fallback;
 - exact amount and destination shown before refund;
+- saved counters remain easy to switch, edit, create, and delete;
+- deleting a counter must state that existing on-chain deposits are unchanged;
 - crypto terminology limited to NIM, wallet, and transaction where necessary;
 - no claims of escrow or guaranteed merchant behaviour.
 
@@ -75,6 +90,8 @@ Included:
 
 - NIM deposits
 - chain verification
+- multiple local merchant counters
+- legacy single-counter migration
 - counter QR
 - receipt QR
 - refund verification
