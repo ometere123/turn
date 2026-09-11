@@ -32,7 +32,6 @@ export interface ChainTransaction {
   data: unknown
   network: string
   state: string
-  valid: boolean
   executionResult?: boolean
   blockHeight?: number
   confirmations?: number
