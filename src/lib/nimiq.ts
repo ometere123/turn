@@ -21,6 +21,9 @@ const TESTNET_SEEDS = [
   '/dns4/seed4.pos.nimiq-testnet.com/tcp/8443/wss',
 ]
 
+const SEND_GUARD_PREFIX = 'turn:send-guard:v1:'
+const SEND_GUARD_TTL_MS = 10 * 60 * 1_000
+
 let providerPromise: ReturnType<typeof init> | null = null
 let clientPromise: Promise<Nimiq.Client> | null = null
 
@@ -82,26 +85,100 @@ export async function getClient(): Promise<Nimiq.Client> {
 
 export async function sendDeposit(counter: CounterConfig, nonce: string): Promise<string> {
   await waitForWalletConsensus()
-  const provider = await getProvider()
-  const result = await provider.sendBasicTransactionWithData({
-    recipient: counter.merchantAddress,
-    value: counter.depositLuna,
-    data: depositMemo(nonce),
-  })
-  if (typeof result !== 'string') throw providerResponseError(result, 'Deposit request failed.')
-  return result
+  const guardKey = depositGuardKey(counter)
+  beginSendGuard(guardKey, 'A recent deposit for this counter may already exist. Check My returns or the merchant wallet before paying again.')
+
+  try {
+    const provider = await getProvider()
+    let result: unknown
+    try {
+      result = await provider.sendBasicTransactionWithData({
+        recipient: counter.merchantAddress,
+        value: counter.depositLuna,
+        data: depositMemo(nonce),
+      })
+    } catch (error) {
+      if (isUserCancellation(error)) {
+        clearSendGuard(guardKey)
+        throw error
+      }
+      const recovered = await reconcileDeposit(counter, nonce)
+      if (recovered) {
+        finishSendGuard(guardKey, recovered.transactionHash)
+        return recovered.transactionHash.toLowerCase()
+      }
+      throw new Error('Payment outcome could not be confirmed. Do not pay again yet. Check the merchant wallet; if the NIM arrived, recover the payment by transaction hash.')
+    }
+
+    if (typeof result === 'string') {
+      finishSendGuard(guardKey, result)
+      return result
+    }
+
+    const responseError = providerResponseError(result, 'Deposit request failed.')
+    if (isUserCancellation(responseError)) {
+      clearSendGuard(guardKey)
+      throw responseError
+    }
+    const recovered = await reconcileDeposit(counter, nonce)
+    if (recovered) {
+      finishSendGuard(guardKey, recovered.transactionHash)
+      return recovered.transactionHash.toLowerCase()
+    }
+    throw new Error('Payment outcome could not be confirmed. Do not pay again yet. Check the merchant wallet; if the NIM arrived, recover the payment by transaction hash.')
+  } catch (error) {
+    if (isUserCancellation(error)) clearSendGuard(guardKey)
+    throw error
+  }
 }
 
 export async function sendRefund(deposit: VerifiedDeposit): Promise<string> {
   await waitForWalletConsensus()
-  const provider = await getProvider()
-  const result = await provider.sendBasicTransactionWithData({
-    recipient: deposit.sender,
-    value: deposit.valueLuna,
-    data: refundMemo(deposit.nonce),
-  })
-  if (typeof result !== 'string') throw providerResponseError(result, 'Refund request failed.')
-  return result
+  const guardKey = refundGuardKey(deposit)
+  beginSendGuard(guardKey, 'A refund for this deposit may already have been sent. Check its status before trying again.')
+
+  try {
+    const provider = await getProvider()
+    let result: unknown
+    try {
+      result = await provider.sendBasicTransactionWithData({
+        recipient: deposit.sender,
+        value: deposit.valueLuna,
+        data: refundMemo(deposit.nonce),
+      })
+    } catch (error) {
+      if (isUserCancellation(error)) {
+        clearSendGuard(guardKey)
+        throw error
+      }
+      const recovered = await reconcileRefund(deposit)
+      if (recovered) {
+        finishSendGuard(guardKey, recovered.transactionHash)
+        return recovered.transactionHash.toLowerCase()
+      }
+      throw new Error('Refund outcome could not be confirmed. Do not send another refund yet. Check the customer wallet and then check this deposit again.')
+    }
+
+    if (typeof result === 'string') {
+      finishSendGuard(guardKey, result)
+      return result
+    }
+
+    const responseError = providerResponseError(result, 'Refund request failed.')
+    if (isUserCancellation(responseError)) {
+      clearSendGuard(guardKey)
+      throw responseError
+    }
+    const recovered = await reconcileRefund(deposit)
+    if (recovered) {
+      finishSendGuard(guardKey, recovered.transactionHash)
+      return recovered.transactionHash.toLowerCase()
+    }
+    throw new Error('Refund outcome could not be confirmed. Do not send another refund yet. Check the customer wallet and then check this deposit again.')
+  } catch (error) {
+    if (isUserCancellation(error)) clearSendGuard(guardKey)
+    throw error
+  }
 }
 
 export async function waitForDeposit(
@@ -204,6 +281,46 @@ export async function validateAddress(address: string): Promise<boolean> {
   }
 }
 
+async function reconcileDeposit(counter: CounterConfig, nonce: string, timeoutMs = 20_000): Promise<ChainTransaction | null> {
+  const expectedData = depositMemo(nonce)
+  return findMatchingTransaction(counter.merchantAddress, timeoutMs, (tx) =>
+    normaliseAddress(tx.recipient) === normaliseAddress(counter.merchantAddress)
+    && tx.value === counter.depositLuna
+    && decodeTransactionData(tx.data) === expectedData,
+  )
+}
+
+async function reconcileRefund(deposit: VerifiedDeposit, timeoutMs = 20_000): Promise<ChainTransaction | null> {
+  const expectedData = refundMemo(deposit.nonce)
+  return findMatchingTransaction(deposit.sender, timeoutMs, (tx) =>
+    normaliseAddress(tx.recipient) === normaliseAddress(deposit.sender)
+    && tx.value === deposit.valueLuna
+    && decodeTransactionData(tx.data) === expectedData,
+  )
+}
+
+async function findMatchingTransaction(
+  address: string,
+  timeoutMs: number,
+  matches: (tx: ChainTransaction) => boolean,
+): Promise<ChainTransaction | null> {
+  try {
+    const client = await getClient()
+    const started = Date.now()
+    while (Date.now() - started < timeoutMs) {
+      if (await client.isConsensusEstablished()) {
+        const transactions = (await client.getTransactionsByAddress(address)) as unknown as ChainTransaction[]
+        const match = transactions.find((tx) => isIncluded(tx) && tx.valid !== false && tx.executionResult !== false && matches(tx))
+        if (match) return match
+      }
+      await sleep(1_000)
+    }
+  } catch {
+    // Reconciliation is best-effort. The send guard remains in place on an ambiguous outcome.
+  }
+  return null
+}
+
 async function waitForClientConsensus(client: Nimiq.Client, timeoutMs: number): Promise<void> {
   const started = Date.now()
   while (Date.now() - started < timeoutMs) {
@@ -211,6 +328,43 @@ async function waitForClientConsensus(client: Nimiq.Client, timeoutMs: number): 
     await sleep(1_000)
   }
   throw new Error('turn is still syncing with Nimiq. Try this check again shortly.')
+}
+
+function depositGuardKey(counter: CounterConfig): string {
+  const item = counter.itemName.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 32)
+  return `${SEND_GUARD_PREFIX}${normaliseNetwork(NETWORK)}:deposit:${normaliseAddress(counter.merchantAddress)}:${counter.depositLuna}:${item}`
+}
+
+function refundGuardKey(deposit: VerifiedDeposit): string {
+  return `${SEND_GUARD_PREFIX}${normaliseNetwork(NETWORK)}:refund:${deposit.txHash.toLowerCase()}`
+}
+
+function beginSendGuard(key: string, message: string): void {
+  if (typeof globalThis.localStorage === 'undefined') return
+  const now = Date.now()
+  try {
+    const current = JSON.parse(localStorage.getItem(key) ?? 'null') as { expiresAt?: number } | null
+    if (current?.expiresAt && current.expiresAt > now) throw new Error(message)
+  } catch (error) {
+    if (error instanceof Error && error.message === message) throw error
+  }
+  localStorage.setItem(key, JSON.stringify({ expiresAt: now + SEND_GUARD_TTL_MS }))
+}
+
+function finishSendGuard(key: string, txHash: string): void {
+  if (typeof globalThis.localStorage === 'undefined') return
+  localStorage.setItem(key, JSON.stringify({ expiresAt: Date.now() + SEND_GUARD_TTL_MS, txHash: txHash.toLowerCase() }))
+}
+
+function clearSendGuard(key: string): void {
+  if (typeof globalThis.localStorage === 'undefined') return
+  localStorage.removeItem(key)
+}
+
+function isUserCancellation(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? '')
+  const name = error && typeof error === 'object' && 'name' in error ? String((error as { name?: unknown }).name) : ''
+  return /PermissionDenied|denied|reject|cancel/i.test(`${name} ${message}`)
 }
 
 function providerResponseError(response: unknown, fallback: string): Error {
