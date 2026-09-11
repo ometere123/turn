@@ -14,6 +14,13 @@ const configuredNetwork = import.meta.env.VITE_NIMIQ_NETWORK ?? 'MainAlbatross'
 const requestedNetwork = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('network') : null
 export const NETWORK = requestedNetwork?.toLowerCase() === 'testnet' ? 'TestAlbatross' : configuredNetwork
 
+const TESTNET_SEEDS = [
+  '/dns4/seed1.pos.nimiq-testnet.com/tcp/8443/wss',
+  '/dns4/seed2.pos.nimiq-testnet.com/tcp/8443/wss',
+  '/dns4/seed3.pos.nimiq-testnet.com/tcp/8443/wss',
+  '/dns4/seed4.pos.nimiq-testnet.com/tcp/8443/wss',
+]
+
 let providerPromise: ReturnType<typeof init> | null = null
 let clientPromise: Promise<Nimiq.Client> | null = null
 
@@ -60,7 +67,10 @@ export async function getClient(): Promise<Nimiq.Client> {
       const config = new Nimiq.ClientConfiguration()
       config.network(NETWORK)
       config.logLevel('warn')
-      if (NETWORK === 'TestAlbatross') config.syncMode('pico')
+      if (NETWORK === 'TestAlbatross') {
+        config.syncMode('pico')
+        config.seedNodes(TESTNET_SEEDS)
+      }
       return Nimiq.Client.create(config.build())
     })().catch((error) => {
       clientPromise = null
