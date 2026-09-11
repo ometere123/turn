@@ -10,11 +10,13 @@ import {
   normaliseNetwork,
   parseCounterLink,
   parseDepositMemo,
+  parseDepositRefundAddress,
   parseReturnReference,
   refundMemo,
 } from './protocol.ts'
 
 const address = 'NQ1200000000000000000000000000000000'
+const refundAddress = 'NQ34AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
 
 test('NIM and Luna convert exactly up to five decimals', () => {
   assert.equal(nimToLuna('1'), 100_000)
@@ -24,11 +26,20 @@ test('NIM and Luna convert exactly up to five decimals', () => {
   assert.throws(() => nimToLuna('1.000001'))
 })
 
-test('deposit and refund memos stay compact and parse safely', () => {
+test('legacy deposit and refund memos stay compact and parse safely', () => {
   const nonce = 'abcdefghijklmnopqrstuv'
   assert.equal(parseDepositMemo(depositMemo(nonce)), nonce)
+  assert.equal(parseDepositRefundAddress(depositMemo(nonce)), null)
   assert.equal(refundMemo(nonce), `turn:r:${nonce}`)
   assert.equal(parseDepositMemo('hello'), null)
+})
+
+test('new deposit memo binds the customer-authorised refund address on-chain', () => {
+  const nonce = 'abcdefghijkl'
+  const memo = depositMemo(nonce, refundAddress)
+  assert.equal(parseDepositMemo(memo), nonce)
+  assert.equal(parseDepositRefundAddress(memo), refundAddress)
+  assert.ok(new TextEncoder().encode(memo).length <= 64)
 })
 
 test('transaction raw hex data decodes to text', () => {
