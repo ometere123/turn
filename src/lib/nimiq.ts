@@ -1,0 +1,178 @@
+import * as Nimiq from '@nimiq/core'
+import { init } from '@nimiq/mini-app-sdk'
+import type { ChainTransaction, CounterConfig, VerifiedDeposit } from '../types.ts'
+import {
+  decodeTransactionData,
+  depositMemo,
+  normaliseAddress,
+  normaliseNetwork,
+  parseDepositMemo,
+  refundMemo,
+} from './protocol.ts'
+
+export const NETWORK = import.meta.env.VITE_NIMIQ_NETWORK ?? 'MainAlbatross'
+
+let providerPromise: ReturnType<typeof init> | null = null
+let clientPromise: Promise<Nimiq.Client> | null = null
+
+export function getProvider() {
+  providerPromise ??= init({ timeout: 5_000 }).catch((error) => {
+    providerPromise = null
+    throw error
+  })
+  return providerPromise
+}
+
+export async function listAccounts(): Promise<string[]> {
+  const provider = await getProvider()
+  const accounts = await provider.listAccounts()
+  return accounts.map(normaliseAddress)
+}
+
+export async function getClient(): Promise<Nimiq.Client> {
+  if (!clientPromise) {
+    clientPromise = (async () => {
+      const config = new Nimiq.ClientConfiguration()
+      config.network(NETWORK)
+      config.logLevel('warn')
+      const client = await Nimiq.Client.create(config.build())
+      await withTimeout(client.waitForConsensusEstablished(), 25_000, 'Nimiq verification is taking longer than expected.')
+      return client
+    })().catch((error) => {
+      clientPromise = null
+      throw error
+    })
+  }
+  return clientPromise
+}
+
+export async function sendDeposit(counter: CounterConfig, nonce: string): Promise<string> {
+  const provider = await getProvider()
+  return provider.sendBasicTransactionWithData({
+    recipient: counter.merchantAddress,
+    value: counter.depositLuna,
+    data: depositMemo(nonce),
+  })
+}
+
+export async function sendRefund(deposit: VerifiedDeposit): Promise<string> {
+  const provider = await getProvider()
+  return provider.sendBasicTransactionWithData({
+    recipient: deposit.sender,
+    value: deposit.valueLuna,
+    data: refundMemo(deposit.nonce),
+  })
+}
+
+export async function waitForDeposit(
+  txHash: string,
+  expected?: { recipient?: string; valueLuna?: number; nonce?: string },
+  timeoutMs = 90_000,
+): Promise<VerifiedDeposit> {
+  const tx = await waitForIncludedTransaction(txHash, timeoutMs)
+  const data = decodeTransactionData(tx.data)
+  const nonce = parseDepositMemo(data)
+  if (!nonce) throw new Error('This transaction is not a turn deposit.')
+  if (expected?.recipient && normaliseAddress(tx.recipient) !== normaliseAddress(expected.recipient)) {
+    throw new Error('The payment recipient does not match this counter.')
+  }
+  if (expected?.valueLuna !== undefined && tx.value !== expected.valueLuna) {
+    throw new Error('The payment amount does not match this deposit.')
+  }
+  if (expected?.nonce && nonce !== expected.nonce) {
+    throw new Error('The payment receipt does not match this deposit attempt.')
+  }
+  return {
+    txHash: tx.transactionHash.toLowerCase(),
+    sender: normaliseAddress(tx.sender),
+    recipient: normaliseAddress(tx.recipient),
+    valueLuna: tx.value,
+    nonce,
+    blockHeight: tx.blockHeight,
+    confirmations: tx.confirmations,
+  }
+}
+
+export async function findExistingRefund(deposit: VerifiedDeposit): Promise<ChainTransaction | null> {
+  const client = await getClient()
+  const transactions = (await client.getTransactionsByAddress(deposit.sender)) as unknown as ChainTransaction[]
+  const expectedData = refundMemo(deposit.nonce)
+  return (
+    transactions.find((tx) =>
+      isIncluded(tx)
+      && tx.valid
+      && tx.executionResult !== false
+      && normaliseAddress(tx.recipient) === normaliseAddress(deposit.sender)
+      && tx.value === deposit.valueLuna
+      && decodeTransactionData(tx.data) === expectedData,
+    ) ?? null
+  )
+}
+
+export async function waitForRefund(
+  txHash: string,
+  deposit: VerifiedDeposit,
+  timeoutMs = 90_000,
+): Promise<ChainTransaction> {
+  const tx = await waitForIncludedTransaction(txHash, timeoutMs)
+  const expectedData = refundMemo(deposit.nonce)
+  if (normaliseAddress(tx.recipient) !== normaliseAddress(deposit.sender)) throw new Error('The refund recipient does not match the original customer.')
+  if (tx.value !== deposit.valueLuna) throw new Error('The refund amount does not match the original deposit.')
+  if (decodeTransactionData(tx.data) !== expectedData) throw new Error('The refund marker does not match the original deposit.')
+  return tx
+}
+
+export async function waitForIncludedTransaction(txHash: string, timeoutMs = 90_000): Promise<ChainTransaction> {
+  const client = await getClient()
+  const started = Date.now()
+  let lastError: unknown
+
+  while (Date.now() - started < timeoutMs) {
+    try {
+      const tx = (await client.getTransaction(txHash)) as unknown as ChainTransaction
+      if (isIncluded(tx)) {
+        if (!tx.valid || tx.executionResult === false) throw new Error('The transaction was included but is not valid.')
+        if (tx.network && normaliseNetwork(tx.network) !== normaliseNetwork(NETWORK)) throw new Error('The transaction is on the wrong Nimiq network.')
+        return tx
+      }
+    } catch (error) {
+      lastError = error
+    }
+    await sleep(1_500)
+  }
+
+  if (lastError instanceof Error && /wrong Nimiq network|not valid/i.test(lastError.message)) throw lastError
+  throw new Error('The transaction is still not confirmed. Keep the receipt and check again shortly.')
+}
+
+export async function validateAddress(address: string): Promise<boolean> {
+  try {
+    Nimiq.Address.fromUserFriendlyAddress(address)
+    return true
+  } catch {
+    return false
+  }
+}
+
+
+function isIncluded(tx: ChainTransaction): boolean {
+  return String(tx.state).toLowerCase() === 'included'
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), ms)
+      }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
