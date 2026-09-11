@@ -1,31 +1,68 @@
-import type { CounterConfig, TurnReceipt } from '../types.ts'
+import type { CounterConfig, MerchantCounter, TurnReceipt } from '../types.ts'
 
-const COUNTER_KEY = 'turn:counter:v1'
+const LEGACY_COUNTER_KEY = 'turn:counter:v1'
+const COUNTERS_KEY = 'turn:counters:v1'
 const RECEIPTS_KEY = 'turn:receipts:v1'
 const REFUND_LOCK_PREFIX = 'turn:refund-lock:'
 
 function hasStorage(): boolean {
-  return typeof window !== 'undefined' && Boolean(window.localStorage)
+  return typeof globalThis.localStorage !== 'undefined'
 }
 
-export function loadCounter(): CounterConfig | null {
-  if (!hasStorage()) return null
+function writeCounters(counters: MerchantCounter[]): MerchantCounter[] {
+  const sorted = [...counters].sort((a, b) => b.createdAt - a.createdAt)
+  if (hasStorage()) localStorage.setItem(COUNTERS_KEY, JSON.stringify(sorted))
+  return sorted
+}
+
+function isCounter(value: unknown): value is CounterConfig {
+  if (!value || typeof value !== 'object') return false
+  const record = value as Record<string, unknown>
+  return record.version === 1
+    && typeof record.merchantName === 'string'
+    && typeof record.itemName === 'string'
+    && typeof record.merchantAddress === 'string'
+    && Number.isSafeInteger(record.depositLuna)
+    && typeof record.createdAt === 'number'
+}
+
+function isMerchantCounter(value: unknown): value is MerchantCounter {
+  return isCounter(value) && typeof (value as { id?: unknown }).id === 'string' && Boolean((value as { id: string }).id)
+}
+
+export function loadCounters(): MerchantCounter[] {
+  if (!hasStorage()) return []
   try {
-    const value = localStorage.getItem(COUNTER_KEY)
-    return value ? (JSON.parse(value) as CounterConfig) : null
+    const stored = localStorage.getItem(COUNTERS_KEY)
+    if (stored) {
+      const parsed = JSON.parse(stored) as unknown
+      if (Array.isArray(parsed)) return parsed.filter(isMerchantCounter).sort((a, b) => b.createdAt - a.createdAt)
+    }
+
+    const legacy = localStorage.getItem(LEGACY_COUNTER_KEY)
+    if (!legacy) return []
+    const parsedLegacy = JSON.parse(legacy) as unknown
+    if (!isCounter(parsedLegacy)) return []
+    const migrated: MerchantCounter = {
+      ...parsedLegacy,
+      id: `legacy-${parsedLegacy.createdAt}`,
+    }
+    writeCounters([migrated])
+    localStorage.removeItem(LEGACY_COUNTER_KEY)
+    return [migrated]
   } catch {
-    return null
+    return []
   }
 }
 
-export function saveCounter(counter: CounterConfig): void {
-  if (!hasStorage()) return
-  localStorage.setItem(COUNTER_KEY, JSON.stringify(counter))
+export function upsertCounter(counter: MerchantCounter): MerchantCounter[] {
+  const counters = loadCounters().filter((item) => item.id !== counter.id)
+  counters.push(counter)
+  return writeCounters(counters)
 }
 
-export function clearCounter(): void {
-  if (!hasStorage()) return
-  localStorage.removeItem(COUNTER_KEY)
+export function deleteCounter(id: string): MerchantCounter[] {
+  return writeCounters(loadCounters().filter((counter) => counter.id !== id))
 }
 
 export function loadReceipts(): TurnReceipt[] {
