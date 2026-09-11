@@ -144,7 +144,6 @@ export async function sendRefund(deposit: VerifiedDeposit): Promise<string> {
       result = await provider.sendBasicTransactionWithData({
         recipient: deposit.sender,
         value: deposit.valueLuna,
-        fee: 0,
         data: refundMemo(deposit.nonce),
       })
     } catch (error) {
@@ -218,8 +217,8 @@ export async function findExistingRefund(deposit: VerifiedDeposit): Promise<Chai
   const expectedData = refundMemo(deposit.nonce)
   return (
     transactions.find((tx) =>
-      isIncluded(tx)
-      && tx.executionResult !== false
+      isConfirmed(tx)
+      && tx.executionResult === true
       && normaliseAddress(tx.recipient) === normaliseAddress(deposit.sender)
       && tx.value === deposit.valueLuna
       && decodeTransactionData(tx.data) === expectedData,
@@ -254,10 +253,20 @@ export async function waitForIncludedTransaction(txHash: string, timeoutMs = 90_
       }
       reachedConsensus = true
       const tx = (await client.getTransaction(txHash)) as unknown as ChainTransaction
-      if (isIncluded(tx)) {
-        if (tx.executionResult === false) throw new Error(`Transaction ${txHash.toLowerCase()} was included but execution failed.`)
+      const state = String(tx.state).toLowerCase()
+
+      if (state === 'confirmed') {
+        if (tx.executionResult === false) throw new Error(`Transaction ${txHash.toLowerCase()} was confirmed but execution failed.`)
         if (tx.network && normaliseNetwork(tx.network) !== normaliseNetwork(NETWORK)) throw new Error('The transaction is on the wrong Nimiq network.')
         return tx
+      }
+
+      // Included transactions are not final yet. A temporary failed execution can be
+      // replaced before macro-block confirmation, so keep waiting instead of reporting
+      // a terminal failure or success.
+      if (state === 'included' || state === 'mined') {
+        await sleep(1_000)
+        continue
       }
     } catch (error) {
       lastError = error
@@ -265,11 +274,11 @@ export async function waitForIncludedTransaction(txHash: string, timeoutMs = 90_
     await sleep(1_500)
   }
 
-  if (lastError instanceof Error && /wrong Nimiq network|execution failed/i.test(lastError.message)) throw lastError
+  if (lastError instanceof Error && /wrong Nimiq network|confirmed but execution failed/i.test(lastError.message)) throw lastError
   if (!reachedConsensus) {
     throw new Error('turn is still syncing with Nimiq. Your submitted payment is saved; keep this screen open or tap Check status again shortly.')
   }
-  throw new Error('The transaction is not confirmed yet. Your receipt is saved; tap Check status again shortly.')
+  throw new Error('The transaction is not final yet. Your receipt is saved; tap Check status again shortly.')
 }
 
 export async function validateAddress(address: string): Promise<boolean> {
@@ -379,6 +388,10 @@ function providerResponseError(response: unknown, fallback: string): Error {
 function isIncluded(tx: ChainTransaction): boolean {
   const state = String(tx.state).toLowerCase()
   return state === 'included' || state === 'confirmed' || state === 'mined'
+}
+
+function isConfirmed(tx: ChainTransaction): boolean {
+  return String(tx.state).toLowerCase() === 'confirmed'
 }
 
 function sleep(ms: number): Promise<void> {
