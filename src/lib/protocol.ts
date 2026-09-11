@@ -89,7 +89,9 @@ export function decodeTransactionData(data: unknown): string {
 
 function turnUrl(origin: string): URL {
   const url = new URL(origin)
-  const testnet = url.searchParams.get('network')?.toLowerCase() === 'testnet'
+  const pageNetwork = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('network') : null
+  const requestedNetwork = url.searchParams.get('network') ?? pageNetwork
+  const testnet = requestedNetwork?.toLowerCase() === 'testnet'
   url.search = ''
   url.hash = ''
   if (testnet) url.searchParams.set('network', 'testnet')
