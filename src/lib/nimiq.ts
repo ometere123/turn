@@ -32,6 +32,28 @@ export async function listAccounts(): Promise<string[]> {
   return accounts.map(normaliseAddress)
 }
 
+export async function waitForWalletConsensus(timeoutMs = 20_000): Promise<void> {
+  const provider = await getProvider()
+  const started = Date.now()
+  let lastError: unknown
+
+  while (Date.now() - started < timeoutMs) {
+    try {
+      if (await provider.isConsensusEstablished()) return
+    } catch (error) {
+      lastError = error
+    }
+    await sleep(1_000)
+  }
+
+  if (lastError instanceof Error && lastError.message.trim()) throw lastError
+  throw new Error(
+    NETWORK === 'TestAlbatross'
+      ? 'Nimiq Pay is still syncing Testnet. Return to the wallet home, wait until your test NIM balance is visible, then try again.'
+      : 'Nimiq Pay is still syncing. Return to the wallet home, wait for the account to finish syncing, then try again.',
+  )
+}
+
 export async function getClient(): Promise<Nimiq.Client> {
   if (!clientPromise) {
     clientPromise = (async () => {
@@ -50,6 +72,7 @@ export async function getClient(): Promise<Nimiq.Client> {
 }
 
 export async function sendDeposit(counter: CounterConfig, nonce: string): Promise<string> {
+  await waitForWalletConsensus()
   const provider = await getProvider()
   const result = await provider.sendBasicTransactionWithData({
     recipient: counter.merchantAddress,
@@ -61,6 +84,7 @@ export async function sendDeposit(counter: CounterConfig, nonce: string): Promis
 }
 
 export async function sendRefund(deposit: VerifiedDeposit): Promise<string> {
+  await waitForWalletConsensus()
   const provider = await getProvider()
   const result = await provider.sendBasicTransactionWithData({
     recipient: deposit.sender,
