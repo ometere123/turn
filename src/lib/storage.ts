@@ -2,11 +2,18 @@ import type { CounterConfig, MerchantCounter, TurnReceipt } from '../types.ts'
 
 const LEGACY_COUNTER_KEY = 'turn:counter:v1'
 const COUNTERS_KEY = 'turn:counters:v1'
-const RECEIPTS_KEY = 'turn:receipts:v1'
+const LEGACY_RECEIPTS_KEY = 'turn:receipts:v1'
+const RECEIPTS_KEY_PREFIX = 'turn:receipts:v2:'
 const REFUND_LOCK_PREFIX = 'turn:refund-lock:'
 
 function hasStorage(): boolean {
   return typeof globalThis.localStorage !== 'undefined'
+}
+
+export function receiptStorageKey(search?: string): string {
+  const query = search ?? (typeof window !== 'undefined' ? window.location.search : '')
+  const network = new URLSearchParams(query).get('network')?.toLowerCase() === 'testnet' ? 'testnet' : 'mainnet'
+  return `${RECEIPTS_KEY_PREFIX}${network}`
 }
 
 function writeCounters(counters: MerchantCounter[]): MerchantCounter[] {
@@ -70,9 +77,24 @@ export function deleteCounter(id: string): MerchantCounter[] {
 export function loadReceipts(): TurnReceipt[] {
   if (!hasStorage()) return []
   try {
-    const value = localStorage.getItem(RECEIPTS_KEY)
-    const parsed = value ? (JSON.parse(value) as TurnReceipt[]) : []
-    return Array.isArray(parsed) ? parsed.sort((a, b) => b.createdAt - a.createdAt) : []
+    const key = receiptStorageKey()
+    const value = localStorage.getItem(key)
+    if (value) {
+      const parsed = JSON.parse(value) as TurnReceipt[]
+      return Array.isArray(parsed) ? parsed.sort((a, b) => b.createdAt - a.createdAt) : []
+    }
+
+    if (key.endsWith(':mainnet')) {
+      const legacy = localStorage.getItem(LEGACY_RECEIPTS_KEY)
+      if (legacy) {
+        const parsed = JSON.parse(legacy) as TurnReceipt[]
+        const receipts = Array.isArray(parsed) ? parsed.sort((a, b) => b.createdAt - a.createdAt) : []
+        localStorage.setItem(key, JSON.stringify(receipts.slice(0, 50)))
+        localStorage.removeItem(LEGACY_RECEIPTS_KEY)
+        return receipts
+      }
+    }
+    return []
   } catch {
     return []
   }
@@ -81,7 +103,7 @@ export function loadReceipts(): TurnReceipt[] {
 export function upsertReceipt(receipt: TurnReceipt): TurnReceipt[] {
   const receipts = loadReceipts().filter((item) => item.txHash.toLowerCase() !== receipt.txHash.toLowerCase())
   receipts.unshift(receipt)
-  if (hasStorage()) localStorage.setItem(RECEIPTS_KEY, JSON.stringify(receipts.slice(0, 50)))
+  if (hasStorage()) localStorage.setItem(receiptStorageKey(), JSON.stringify(receipts.slice(0, 50)))
   return receipts
 }
 
