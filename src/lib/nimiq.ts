@@ -144,6 +144,7 @@ export async function sendRefund(deposit: VerifiedDeposit): Promise<string> {
       result = await provider.sendBasicTransactionWithData({
         recipient: deposit.sender,
         value: deposit.valueLuna,
+        fee: 0,
         data: refundMemo(deposit.nonce),
       })
     } catch (error) {
@@ -254,7 +255,7 @@ export async function waitForIncludedTransaction(txHash: string, timeoutMs = 90_
       reachedConsensus = true
       const tx = (await client.getTransaction(txHash)) as unknown as ChainTransaction
       if (isIncluded(tx)) {
-        if (tx.executionResult === false) throw new Error('The transaction was included but execution failed.')
+        if (tx.executionResult === false) throw new Error(`Transaction ${txHash.toLowerCase()} was included but execution failed.`)
         if (tx.network && normaliseNetwork(tx.network) !== normaliseNetwork(NETWORK)) throw new Error('The transaction is on the wrong Nimiq network.')
         return tx
       }
