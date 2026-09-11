@@ -60,9 +60,8 @@ export async function getClient(): Promise<Nimiq.Client> {
       const config = new Nimiq.ClientConfiguration()
       config.network(NETWORK)
       config.logLevel('warn')
-      const client = await Nimiq.Client.create(config.build())
-      await withTimeout(client.waitForConsensusEstablished(), 25_000, 'Nimiq verification is taking longer than expected.')
-      return client
+      if (NETWORK === 'TestAlbatross') config.syncMode('pico')
+      return Nimiq.Client.create(config.build())
     })().catch((error) => {
       clientPromise = null
       throw error
@@ -126,6 +125,7 @@ export async function waitForDeposit(
 
 export async function findExistingRefund(deposit: VerifiedDeposit): Promise<ChainTransaction | null> {
   const client = await getClient()
+  await waitForClientConsensus(client, 30_000)
   const transactions = (await client.getTransactionsByAddress(deposit.sender)) as unknown as ChainTransaction[]
   const expectedData = refundMemo(deposit.nonce)
   return (
@@ -157,9 +157,15 @@ export async function waitForIncludedTransaction(txHash: string, timeoutMs = 90_
   const client = await getClient()
   const started = Date.now()
   let lastError: unknown
+  let reachedConsensus = false
 
   while (Date.now() - started < timeoutMs) {
     try {
+      if (!(await client.isConsensusEstablished())) {
+        await sleep(1_000)
+        continue
+      }
+      reachedConsensus = true
       const tx = (await client.getTransaction(txHash)) as unknown as ChainTransaction
       if (isIncluded(tx)) {
         if (!tx.valid || tx.executionResult === false) throw new Error('The transaction was included but is not valid.')
@@ -173,7 +179,10 @@ export async function waitForIncludedTransaction(txHash: string, timeoutMs = 90_
   }
 
   if (lastError instanceof Error && /wrong Nimiq network|not valid/i.test(lastError.message)) throw lastError
-  throw new Error('The transaction is still not confirmed. Keep the receipt and check again shortly.')
+  if (!reachedConsensus) {
+    throw new Error('turn is still syncing with Nimiq. Your submitted payment is saved; keep this screen open or tap Check status again shortly.')
+  }
+  throw new Error('The transaction is not confirmed yet. Your receipt is saved; tap Check status again shortly.')
 }
 
 export async function validateAddress(address: string): Promise<boolean> {
@@ -183,6 +192,15 @@ export async function validateAddress(address: string): Promise<boolean> {
   } catch {
     return false
   }
+}
+
+async function waitForClientConsensus(client: Nimiq.Client, timeoutMs: number): Promise<void> {
+  const started = Date.now()
+  while (Date.now() - started < timeoutMs) {
+    if (await client.isConsensusEstablished()) return
+    await sleep(1_000)
+  }
+  throw new Error('turn is still syncing with Nimiq. Try this check again shortly.')
 }
 
 function providerResponseError(response: unknown, fallback: string): Error {
@@ -200,18 +218,4 @@ function isIncluded(tx: ChainTransaction): boolean {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
-}
-
-async function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<T>((_, reject) => {
-        timer = setTimeout(() => reject(new Error(message)), ms)
-      }),
-    ])
-  } finally {
-    if (timer) clearTimeout(timer)
-  }
 }
