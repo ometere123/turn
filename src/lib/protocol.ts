@@ -6,7 +6,6 @@ export const REFUND_PREFIX = 'turn:r:'
 const HASH_RE = /^[0-9a-f]{64}$/i
 const ADDRESS_RE = /^NQ[0-9]{2}[A-Z0-9]{32}$/
 
-
 export function normaliseNetwork(network: string): string {
   return network.toLowerCase().replace(/[^a-z0-9]/g, '')
 }
@@ -88,10 +87,17 @@ export function decodeTransactionData(data: unknown): string {
   return ''
 }
 
-export function buildCounterLink(origin: string, counter: CounterConfig): string {
+function turnUrl(origin: string): URL {
   const url = new URL(origin)
+  const testnet = url.searchParams.get('network')?.toLowerCase() === 'testnet'
   url.search = ''
   url.hash = ''
+  if (testnet) url.searchParams.set('network', 'testnet')
+  return url
+}
+
+export function buildCounterLink(origin: string, counter: CounterConfig): string {
+  const url = turnUrl(origin)
   url.searchParams.set('turn', 'counter')
   url.searchParams.set('v', '1')
   url.searchParams.set('a', normaliseAddress(counter.merchantAddress))
@@ -117,9 +123,7 @@ export function parseCounterLink(input: string): CounterConfig {
 
 export function buildReturnLink(origin: string, txHash: string): string {
   assertTxHash(txHash)
-  const url = new URL(origin)
-  url.search = ''
-  url.hash = ''
+  const url = turnUrl(origin)
   url.searchParams.set('turn', 'return')
   url.searchParams.set('tx', txHash.toLowerCase())
   return url.toString()
