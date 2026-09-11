@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { afterEach, beforeEach, test } from 'node:test'
-import type { MerchantCounter } from '../types.ts'
-import { deleteCounter, loadCounters, upsertCounter } from './storage.ts'
+import type { MerchantCounter, TurnReceipt } from '../types.ts'
+import { deleteCounter, loadCounters, loadReceipts, receiptStorageKey, upsertCounter } from './storage.ts'
 
 class MemoryStorage implements Storage {
   private values = new Map<string, string>()
@@ -34,6 +34,20 @@ function counter(id: string, itemName: string, createdAt: number): MerchantCount
     merchantAddress: 'NQ1200000000000000000000000000000000',
     depositLuna: 100_000,
     createdAt,
+  }
+}
+
+function receipt(txHash: string): TurnReceipt {
+  return {
+    version: 1,
+    txHash,
+    nonce: 'abcdefghijklmnopqrstuv',
+    merchantName: 'Loop Coffee',
+    itemName: 'Reusable cup',
+    merchantAddress: 'NQ1200000000000000000000000000000000',
+    depositLuna: 100_000,
+    createdAt: 1,
+    status: 'active',
   }
 }
 
@@ -74,4 +88,20 @@ test('legacy single-counter storage migrates into the counter collection', () =>
   assert.equal(counters[0]?.merchantName, 'Legacy Cafe')
   assert.match(counters[0]?.id ?? '', /^legacy-/)
   assert.equal(localStorage.getItem('turn:counter:v1'), null)
+})
+
+test('mainnet and testnet receipts use different local storage namespaces', () => {
+  assert.equal(receiptStorageKey(''), 'turn:receipts:v2:mainnet')
+  assert.equal(receiptStorageKey('?network=testnet'), 'turn:receipts:v2:testnet')
+  assert.notEqual(receiptStorageKey(''), receiptStorageKey('?network=testnet'))
+})
+
+test('legacy receipts migrate only into the mainnet namespace', () => {
+  const legacyReceipt = receipt('a'.repeat(64))
+  localStorage.setItem('turn:receipts:v1', JSON.stringify([legacyReceipt]))
+  const receipts = loadReceipts()
+  assert.equal(receipts.length, 1)
+  assert.equal(receipts[0]?.txHash, legacyReceipt.txHash)
+  assert.equal(localStorage.getItem('turn:receipts:v1'), null)
+  assert.ok(localStorage.getItem('turn:receipts:v2:mainnet'))
 })
