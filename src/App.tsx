@@ -50,13 +50,14 @@ import {
 } from './lib/protocol.ts'
 import {
   acquireRefundLock,
-  loadCounter,
+  deleteCounter,
+  loadCounters,
   loadReceipts,
   releaseRefundLock,
-  saveCounter,
+  upsertCounter,
   upsertReceipt,
 } from './lib/storage.ts'
-import type { CounterConfig, TurnMode, TurnReceipt, VerifiedDeposit } from './types.ts'
+import type { CounterConfig, MerchantCounter, TurnMode, TurnReceipt, VerifiedDeposit } from './types.ts'
 
 type ProviderState = 'checking' | 'ready' | 'outside'
 type BusyState = 'idle' | 'wallet' | 'chain' | 'refund-wallet' | 'refund-chain'
@@ -73,7 +74,12 @@ export function App() {
   const [mode, setMode] = useState<TurnMode>('customer')
   const [providerState, setProviderState] = useState<ProviderState>('checking')
   const [counter, setCounter] = useState<CounterConfig | null>(null)
-  const [merchantCounter, setMerchantCounter] = useState<CounterConfig | null>(() => loadCounter())
+  const [merchantCounters, setMerchantCounters] = useState<MerchantCounter[]>(() => loadCounters())
+  const [merchantCounterId, setMerchantCounterId] = useState<string | null>(null)
+  const merchantCounter = useMemo(
+    () => merchantCounters.find((item) => item.id === merchantCounterId) ?? merchantCounters[0] ?? null,
+    [merchantCounters, merchantCounterId],
+  )
   const [merchantAccounts, setMerchantAccounts] = useState<string[]>([])
   const [receipts, setReceipts] = useState<TurnReceipt[]>(() => loadReceipts())
   const [selectedReceipt, setSelectedReceipt] = useState<TurnReceipt | null>(null)
@@ -83,6 +89,7 @@ export function App() {
   const [error, setError] = useState<string>('')
   const [scanner, setScanner] = useState<'counter' | 'return' | null>(null)
   const [showSetup, setShowSetup] = useState(false)
+  const [editingCounterId, setEditingCounterId] = useState<string | null>(null)
   const [merchantName, setMerchantName] = useState(merchantCounter?.merchantName ?? '')
   const [itemName, setItemName] = useState(merchantCounter?.itemName ?? 'Reusable cup')
   const [depositNim, setDepositNim] = useState(merchantCounter ? lunaToNim(merchantCounter.depositLuna) : '1')
@@ -137,6 +144,44 @@ export function App() {
     }
   }
 
+  function startNewCounter() {
+    clearMessages()
+    setEditingCounterId(null)
+    setMerchantName(merchantCounter?.merchantName ?? '')
+    setItemName('Reusable cup')
+    setDepositNim('1')
+    setSelectedAccount(merchantCounter?.merchantAddress ?? merchantAccounts[0] ?? '')
+    setShowSetup(true)
+  }
+
+  function startEditCounter() {
+    if (!merchantCounter) return
+    clearMessages()
+    setEditingCounterId(merchantCounter.id)
+    setMerchantName(merchantCounter.merchantName)
+    setItemName(merchantCounter.itemName)
+    setDepositNim(lunaToNim(merchantCounter.depositLuna))
+    setSelectedAccount(merchantCounter.merchantAddress)
+    setShowSetup(true)
+  }
+
+  function cancelCounterSetup() {
+    setShowSetup(false)
+    setEditingCounterId(null)
+  }
+
+  function removeMerchantCounter() {
+    if (!merchantCounter) return
+    const confirmed = window.confirm(`Delete the ${merchantCounter.itemName} counter from this device? Existing customer deposits and receipts are not changed.`)
+    if (!confirmed) return
+    const remaining = deleteCounter(merchantCounter.id)
+    setMerchantCounters(remaining)
+    setMerchantCounterId(remaining[0]?.id ?? null)
+    setShowSetup(false)
+    setEditingCounterId(null)
+    setNotice('Counter deleted from this device. Existing on-chain deposits are unchanged.')
+  }
+
   async function saveMerchantSetup(event: React.FormEvent) {
     event.preventDefault()
     clearMessages()
@@ -147,18 +192,21 @@ export function App() {
       if (!cleanItem || cleanItem.length > 40) throw new Error('Use an item name between 1 and 40 characters.')
       if (!selectedAccount) throw new Error('Choose the Nimiq account that will receive deposits.')
       if (!(await validateAddress(selectedAccount))) throw new Error('The selected Nimiq address is invalid.')
-      const next: CounterConfig = {
+      const existing = editingCounterId ? merchantCounters.find((item) => item.id === editingCounterId) : undefined
+      const next: MerchantCounter = {
+        id: existing?.id ?? newNonce(),
         version: 1,
         merchantName: cleanMerchant,
         itemName: cleanItem,
         merchantAddress: normaliseAddress(selectedAccount),
         depositLuna: nimToLuna(depositNim),
-        createdAt: merchantCounter?.createdAt ?? Date.now(),
+        createdAt: existing?.createdAt ?? Date.now(),
       }
-      saveCounter(next)
-      setMerchantCounter(next)
+      setMerchantCounters(upsertCounter(next))
+      setMerchantCounterId(next.id)
       setShowSetup(false)
-      setNotice('Counter ready. Customers can scan it now.')
+      setEditingCounterId(null)
+      setNotice(existing ? 'Counter updated. Customers can scan it now.' : 'Counter created. Customers can scan it now.')
     } catch (caught) {
       setError(messageFrom(caught))
     }
@@ -374,12 +422,14 @@ export function App() {
           )
         ) : (
           <MerchantView
+            counters={merchantCounters}
             counter={merchantCounter}
             merchantAccounts={merchantAccounts}
             merchantConnected={merchantConnected}
             busy={busy}
             returnReview={returnReview}
             showSetup={showSetup}
+            editing={Boolean(editingCounterId)}
             merchantName={merchantName}
             itemName={itemName}
             depositNim={depositNim}
@@ -388,8 +438,11 @@ export function App() {
             onItemName={setItemName}
             onDepositNim={setDepositNim}
             onSelectedAccount={setSelectedAccount}
-            onSetup={() => setShowSetup(true)}
-            onCancelSetup={() => setShowSetup(false)}
+            onNewCounter={startNewCounter}
+            onEditCounter={startEditCounter}
+            onDeleteCounter={removeMerchantCounter}
+            onSelectCounter={setMerchantCounterId}
+            onCancelSetup={cancelCounterSetup}
             onSaveSetup={saveMerchantSetup}
             onConnect={() => void openMerchantSession()}
             onScanReturn={() => setScanner('return')}
@@ -551,12 +604,14 @@ function ReceiptView({ receipt, busy, onBack, onRefresh }: {
 }
 
 function MerchantView(props: {
-  counter: CounterConfig | null
+  counters: MerchantCounter[]
+  counter: MerchantCounter | null
   merchantAccounts: string[]
   merchantConnected: boolean
   busy: BusyState
   returnReview: ReturnReview | null
   showSetup: boolean
+  editing: boolean
   merchantName: string
   itemName: string
   depositNim: string
@@ -565,7 +620,10 @@ function MerchantView(props: {
   onItemName: (value: string) => void
   onDepositNim: (value: string) => void
   onSelectedAccount: (value: string) => void
-  onSetup: () => void
+  onNewCounter: () => void
+  onEditCounter: () => void
+  onDeleteCounter: () => void
+  onSelectCounter: (id: string) => void
   onCancelSetup: () => void
   onSaveSetup: (event: React.FormEvent) => void
   onConnect: () => void
@@ -574,23 +632,24 @@ function MerchantView(props: {
   onClearReturn: () => void
 }) {
   const {
-    counter, merchantAccounts, merchantConnected, busy, returnReview, showSetup,
+    counters, counter, merchantAccounts, merchantConnected, busy, returnReview, showSetup, editing,
     merchantName, itemName, depositNim, selectedAccount,
     onMerchantName, onItemName, onDepositNim, onSelectedAccount,
-    onSetup, onCancelSetup, onSaveSetup, onConnect, onScanReturn, onRefund, onClearReturn,
+    onNewCounter, onEditCounter, onDeleteCounter, onSelectCounter,
+    onCancelSetup, onSaveSetup, onConnect, onScanReturn, onRefund, onClearReturn,
   } = props
 
   if (returnReview) {
     return <ReturnReviewView review={returnReview} busy={busy} onBack={onClearReturn} onRefund={onRefund} />
   }
 
-  if (showSetup || !counter) {
+  if (showSetup || counters.length === 0) {
     return (
       <div className="stack page-enter narrow">
-        {counter ? <button className="back-link" type="button" onClick={onCancelSetup}><ArrowLeft size={17} /> Counter</button> : null}
+        {counters.length ? <button className="back-link" type="button" onClick={onCancelSetup}><ArrowLeft size={17} /> Counters</button> : null}
         <section className="utility-card setup-card">
-          <span className="eyebrow"><Store size={14} /> one-minute setup</span>
-          <h1>Make a return counter.</h1>
+          <span className="eyebrow"><Store size={14} /> {editing ? 'counter settings' : 'one-minute setup'}</span>
+          <h1>{editing ? 'Edit this counter.' : 'Make a return counter.'}</h1>
           <p>Choose the wallet that receives deposits, name the item, and set one refundable amount.</p>
           {merchantAccounts.length === 0 ? (
             <button className="button button--gold" type="button" onClick={onConnect} disabled={busy !== 'idle'}>{busy === 'wallet' ? <LoaderCircle className="spin" /> : <WalletCards />} Authorise merchant wallet</button>
@@ -600,7 +659,7 @@ function MerchantView(props: {
               <label><span>Returnable item</span><input value={itemName} onChange={(event) => onItemName(event.target.value)} placeholder="Reusable cup" maxLength={40} /></label>
               <label><span>Deposit</span><div className="amount-input"><input inputMode="decimal" value={depositNim} onChange={(event) => onDepositNim(event.target.value)} /><b>NIM</b></div></label>
               <label><span>Receiving wallet</span><select value={selectedAccount} onChange={(event) => onSelectedAccount(event.target.value)}>{merchantAccounts.map((account) => <option key={account} value={account}>{shortAddress(account)}</option>)}</select></label>
-              <button className="button button--gold button--large" type="submit">Create counter <ArrowRight size={18} /></button>
+              <button className="button button--gold button--large" type="submit">{editing ? 'Save changes' : 'Create counter'} <ArrowRight size={18} /></button>
             </form>
           )}
         </section>
@@ -608,6 +667,7 @@ function MerchantView(props: {
     )
   }
 
+  if (!counter) return null
   const counterLink = buildCounterLink(APP_BASE, counter)
   return (
     <div className="stack page-enter merchant-layout">
@@ -627,7 +687,27 @@ function MerchantView(props: {
         ) : (
           <button className="button button--gold button--large" type="button" onClick={onScanReturn} disabled={busy !== 'idle'}><ScanLine /> Scan return receipt</button>
         )}
-        <button className="text-button" type="button" onClick={onSetup}>Edit counter</button>
+        <div className="inline-actions">
+          <button className="text-button" type="button" onClick={onEditCounter}>Edit counter</button>
+          <button className="text-button" type="button" onClick={onDeleteCounter}>Delete counter</button>
+        </div>
+      </section>
+
+      <section className="section-block">
+        <div className="section-heading">
+          <div><span className="eyebrow"><Store size={14} /> saved counters</span><h2>Your counters</h2></div>
+          <button className="button button--quiet button--small" type="button" onClick={onNewCounter}>New counter</button>
+        </div>
+        <div className="receipt-list">
+          {counters.map((item) => (
+            <button className="receipt-row" key={item.id} type="button" onClick={() => onSelectCounter(item.id)}>
+              <span className="receipt-icon receipt-icon--active"><Store size={18} /></span>
+              <span className="receipt-copy"><strong>{item.itemName}</strong><small>{item.merchantName} · {lunaToNim(item.depositLuna)} NIM</small></span>
+              <span className="count-pill">{item.id === counter.id ? 'Open' : 'View'}</span>
+              <ChevronRight size={18} className="chevron" />
+            </button>
+          ))}
+        </div>
       </section>
     </div>
   )
