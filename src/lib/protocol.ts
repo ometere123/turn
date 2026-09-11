@@ -5,6 +5,7 @@ export const DEPOSIT_PREFIX = 'turn:d:'
 export const REFUND_PREFIX = 'turn:r:'
 const HASH_RE = /^[0-9a-f]{64}$/i
 const ADDRESS_RE = /^NQ[0-9]{2}[A-Z0-9]{32}$/
+const NONCE_RE = /^[A-Za-z0-9_-]{12,40}$/
 
 export function normaliseNetwork(network: string): string {
   return network.toLowerCase().replace(/[^a-z0-9]/g, '')
@@ -34,7 +35,7 @@ export function lunaToNim(luna: number): string {
   return fraction ? `${whole}.${fraction}` : String(whole)
 }
 
-export function newNonce(bytes = 16): string {
+export function newNonce(bytes = 9): string {
   const data = new Uint8Array(bytes)
   const cryptoApi = globalThis.crypto
   if (!cryptoApi?.getRandomValues) throw new Error('Secure randomness is unavailable in this browser.')
@@ -50,8 +51,14 @@ function toBase64Url(bytes: Uint8Array): string {
   return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')
 }
 
-export function depositMemo(nonce: string): string {
-  const value = `${DEPOSIT_PREFIX}${nonce}`
+export function depositMemo(nonce: string, refundAddress?: string): string {
+  if (!NONCE_RE.test(nonce)) throw new Error('Deposit nonce is invalid.')
+  let value = `${DEPOSIT_PREFIX}${nonce}`
+  if (refundAddress !== undefined) {
+    const address = normaliseAddress(refundAddress)
+    if (!looksLikeNimiqAddress(address)) throw new Error('Refund address is invalid.')
+    value = `${value}:${address}`
+  }
   if (new TextEncoder().encode(value).length > 64) throw new Error('Deposit memo is too large.')
   return value
 }
@@ -63,9 +70,24 @@ export function refundMemo(nonce: string): string {
 }
 
 export function parseDepositMemo(value: string): string | null {
+  return parseDepositBinding(value)?.nonce ?? null
+}
+
+export function parseDepositRefundAddress(value: string): string | null {
+  return parseDepositBinding(value)?.refundAddress ?? null
+}
+
+function parseDepositBinding(value: string): { nonce: string; refundAddress: string | null } | null {
   if (!value.startsWith(DEPOSIT_PREFIX)) return null
-  const nonce = value.slice(DEPOSIT_PREFIX.length)
-  return /^[A-Za-z0-9_-]{16,40}$/.test(nonce) ? nonce : null
+  const payload = value.slice(DEPOSIT_PREFIX.length)
+  const parts = payload.split(':')
+  if (parts.length < 1 || parts.length > 2) return null
+  const nonce = parts[0] ?? ''
+  if (!NONCE_RE.test(nonce)) return null
+  if (parts.length === 1) return { nonce, refundAddress: null }
+  const refundAddress = normaliseAddress(parts[1] ?? '')
+  if (!looksLikeNimiqAddress(refundAddress)) return null
+  return { nonce, refundAddress }
 }
 
 export function decodeTransactionData(data: unknown): string {
