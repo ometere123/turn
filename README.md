@@ -125,7 +125,7 @@ npm run typecheck
 npm run build
 ```
 
-GitHub Actions runs all three on every push. A Pages workflow also builds the production MainAlbatross bundle and attempts an HTTPS GitHub Pages deployment.
+GitHub Actions runs all three on every push. A Pages workflow builds the production MainAlbatross bundle for an HTTPS deployment suitable for Nimiq Pay real-device testing.
 
 See:
 
