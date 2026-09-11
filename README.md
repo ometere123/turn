@@ -28,7 +28,7 @@ turn:d:<nonce>   # deposit
 turn:r:<nonce>   # matching refund
 ```
 
-The customer device keeps local receipt metadata for convenience, but financial truth is reconstructed from the Nimiq chain. Losing local storage does not invalidate the transaction; a receipt can be recovered by deposit transaction hash.
+The customer device keeps local receipt metadata for convenience, and the merchant device keeps its saved counter configurations locally. Neither is financial authority: financial truth is reconstructed from the Nimiq chain. Losing local storage does not invalidate a deposit transaction; a receipt can be recovered by deposit transaction hash.
 
 ## Core flow
 
@@ -44,12 +44,15 @@ The customer device keeps local receipt metadata for convenience, but financial 
 ### Merchant
 
 1. Authorise wallet address access in Nimiq Pay.
-2. Create one counter: merchant name, returnable item, NIM deposit, receiving wallet.
-3. Let customers scan the counter QR.
-4. When an item returns, scan the customer's return receipt.
-5. turn verifies the deposit and checks for an already-included matching refund.
-6. Physically confirm the item is back and approve the exact refund in Nimiq Pay.
-7. turn verifies the customer received the exact amount tagged to that deposit before calling it complete.
+2. Create one or more counters. Each counter has its own merchant name, returnable item, NIM deposit and receiving wallet.
+3. Open the required saved counter and let customers scan its QR.
+4. Edit or delete local counter configurations without changing existing on-chain deposits.
+5. When an item returns, scan the customer's return receipt.
+6. turn verifies the deposit and checks for an already-included matching refund.
+7. Physically confirm the item is back and approve the exact refund in Nimiq Pay.
+8. turn verifies the customer received the exact amount tagged to that deposit before calling it complete.
+
+An existing pre-multi-counter configuration is migrated automatically into the saved counter list on first load.
 
 ## Trust model
 
@@ -68,7 +71,7 @@ The Mini App SDK does not expose a sender-selection argument for NIM payments. T
 - `@nimiq/core` Web Client for independent browser-side chain verification
 - `qr-scanner` for camera handoff
 - `qrcode` for counter and receipt QR generation
-- localStorage only for non-authoritative convenience state
+- localStorage only for non-authoritative convenience state and saved counter configurations
 - Vercel for the production HTTPS deployment
 
 ## Development
