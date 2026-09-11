@@ -59,10 +59,10 @@ export function QrPanel({ value, label, helper, shareTitle, shareText, compact =
       <div className="inline-actions">
         <button className="button button--quiet button--small" type="button" onClick={copy}>
           {copied ? <Check size={16} /> : <Copy size={16} />}
-          {copied ? 'copied' : 'copy'}
+          {copied ? 'Copied' : 'Copy'}
         </button>
         <button className="button button--quiet button--small" type="button" onClick={share}>
-          <Share2 size={16} /> share
+          <Share2 size={16} /> Share
         </button>
       </div>
     </div>

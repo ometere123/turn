@@ -350,7 +350,7 @@ export function App() {
       <div className="ambient ambient--two" aria-hidden="true" />
 
       <header className="topbar">
-        <button className="brand" type="button" onClick={() => { setMode('customer'); setCounter(null); setSelectedReceipt(null); clearMessages() }} aria-label="Turn home">
+        <button className="brand" type="button" onClick={() => { setMode('customer'); setCounter(null); setSelectedReceipt(null); clearMessages() }} aria-label="turn home">
           <span className="brand-mark">↻</span>
           <span>turn</span>
         </button>
@@ -399,18 +399,18 @@ export function App() {
         )}
       </main>
 
-      <nav className="mode-nav" aria-label="Turn mode">
+      <nav className="mode-nav" aria-label="turn mode">
         <button className={mode === 'customer' ? 'active' : ''} type="button" onClick={() => { setMode('customer'); setReturnReview(null); clearMessages() }}>
-          <Undo2 size={19} /><span>return</span>
+          <Undo2 size={19} /><span>Return</span>
         </button>
         <button className={mode === 'merchant' ? 'active' : ''} type="button" onClick={() => { setMode('merchant'); setCounter(null); setSelectedReceipt(null); clearMessages() }}>
-          <Store size={19} /><span>counter</span>
+          <Store size={19} /><span>Counter</span>
         </button>
       </nav>
 
       <ScannerModal
         open={Boolean(scanner)}
-        title={scanner === 'counter' ? 'scan counter' : 'scan return receipt'}
+        title={scanner === 'counter' ? 'Scan counter' : 'Scan return receipt'}
         helper={scanner === 'counter' ? 'Point at a turn counter QR.' : 'Point at the customer’s return receipt.'}
         placeholder={scanner === 'counter' ? 'Paste turn counter link' : 'Paste receipt link or transaction hash'}
         onClose={() => setScanner(null)}
@@ -443,19 +443,19 @@ function CustomerHome({
       <section className="hero utility-card">
         <div className="hero-loop" aria-hidden="true"><span>↻</span></div>
         <span className="eyebrow">refundable deposits, without cash</span>
-        <h1>pay it. bring it back. <em>get it back.</em></h1>
+        <h1>Pay it. Bring it back. <em>Get it back.</em></h1>
         <p>Scan a turn counter, pay the reusable-item deposit in NIM, then show your receipt when you return it.</p>
         <button className="button button--gold button--large" type="button" onClick={onScan} disabled={busy !== 'idle'}>
-          <ScanLine size={20} /> scan a counter <ArrowRight size={18} />
+          <ScanLine size={20} /> Scan a counter <ArrowRight size={18} />
         </button>
-        <div className="trust-line"><ShieldCheck size={16} /><span>payments stay between you and the merchant</span></div>
+        <div className="trust-line"><ShieldCheck size={16} /><span>Payments stay between you and the merchant</span></div>
       </section>
 
       {providerState === 'outside' ? <OutsideNimiqPay /> : null}
 
       <section className="section-block">
         <div className="section-heading">
-          <div><span className="eyebrow"><History size={14} /> wallet receipts</span><h2>my returns</h2></div>
+          <div><span className="eyebrow"><History size={14} /> wallet receipts</span><h2>My returns</h2></div>
           {receipts.length ? <span className="count-pill">{receipts.length}</span> : null}
         </div>
         {receipts.length ? (
@@ -472,11 +472,11 @@ function CustomerHome({
         ) : (
           <div className="empty-state"><PackageCheck size={28} /><strong>No return receipts yet.</strong><span>Your first deposit receipt will stay here on this device.</span></div>
         )}
-        <button className="text-button" type="button" onClick={() => setRecovering((value) => !value)}>recover a receipt by transaction hash</button>
+        <button className="text-button" type="button" onClick={() => setRecovering((value) => !value)}>Recover a receipt by transaction hash</button>
         {recovering ? (
           <form className="recover-form" onSubmit={(event) => { event.preventDefault(); if (reference.trim()) onRecover(reference.trim()) }}>
             <input value={reference} onChange={(event) => setReference(event.target.value)} placeholder="Paste return link or 64-character transaction hash" autoCapitalize="off" />
-            <button className="button button--quiet" type="submit" disabled={!reference.trim() || busy !== 'idle'}>recover</button>
+            <button className="button button--quiet" type="submit" disabled={!reference.trim() || busy !== 'idle'}>Recover</button>
           </form>
         ) : null}
       </section>
@@ -495,27 +495,27 @@ function CounterCheckout({ counter, busy, providerState, onBack, onPay }: {
   const working = busy === 'wallet' || busy === 'chain'
   return (
     <div className="stack page-enter narrow">
-      <button className="back-link" type="button" onClick={onBack}><ArrowLeft size={17} /> back</button>
+      <button className="back-link" type="button" onClick={onBack}><ArrowLeft size={17} /> Back</button>
       <section className="checkout-card utility-card">
         <div className="merchant-badge"><Store size={18} /><span>{counter.merchantName}</span></div>
         <div className="checkout-item">
           <span className="item-symbol">↻</span>
-          <div><small>returnable item</small><h1>{counter.itemName}</h1></div>
+          <div><small>Returnable item</small><h1>{counter.itemName}</h1></div>
         </div>
         <div className="amount-panel">
-          <span>refundable deposit</span>
+          <span>Refundable deposit</span>
           <strong>{amount} <small>NIM</small></strong>
           <p>You pay the merchant now. Return the item and they send this exact amount back to the same wallet.</p>
         </div>
-        <div className="address-row"><span>to</span><code>{shortAddress(counter.merchantAddress)}</code></div>
+        <div className="address-row"><span>To</span><code>{shortAddress(counter.merchantAddress)}</code></div>
         <button className="button button--gold button--large" type="button" onClick={onPay} disabled={working || providerState !== 'ready'}>
-          {busy === 'wallet' ? <><LoaderCircle className="spin" size={19} /> approve in Nimiq Pay</> : busy === 'chain' ? <><LoaderCircle className="spin" size={19} /> confirming on-chain</> : <><WalletCards size={19} /> pay {amount} NIM deposit</>}
+          {busy === 'wallet' ? <><LoaderCircle className="spin" size={19} /> Approve in Nimiq Pay</> : busy === 'chain' ? <><LoaderCircle className="spin" size={19} /> Confirming on-chain</> : <><WalletCards size={19} /> Pay {amount} NIM deposit</>}
         </button>
         {providerState !== 'ready' ? <p className="field-note">Open this counter inside Nimiq Pay to pay.</p> : null}
       </section>
       <div className="trust-grid">
-        <div><ShieldCheck /><strong>direct payment</strong><span>turn never holds your NIM</span></div>
-        <div><RotateCcw /><strong>same amount back</strong><span>refund is checked against this deposit</span></div>
+        <div><ShieldCheck /><strong>Direct payment</strong><span>turn never holds your NIM</span></div>
+        <div><RotateCcw /><strong>Same amount back</strong><span>Refund is checked against this deposit</span></div>
       </div>
     </div>
   )
@@ -532,19 +532,19 @@ function ReceiptView({ receipt, busy, onBack, onRefresh }: {
   const submitted = receipt.status === 'submitted'
   return (
     <div className="stack page-enter narrow">
-      <button className="back-link" type="button" onClick={onBack}><ArrowLeft size={17} /> my returns</button>
+      <button className="back-link" type="button" onClick={onBack}><ArrowLeft size={17} /> My returns</button>
       <section className={`receipt-card utility-card receipt-card--${receipt.status}`}>
         <div className="receipt-state-icon">{receipt.status === 'refunded' ? <CheckCircle2 /> : submitted ? <Clock3 /> : <RotateCcw />}</div>
         <span className="eyebrow">{receipt.status === 'refunded' ? 'completed' : submitted ? 'payment submitted' : 'ready to return'}</span>
         <h1>{receipt.itemName}</h1>
         <p className="receipt-merchant">{receipt.merchantName}</p>
-        <div className="receipt-amount"><span>{receipt.status === 'refunded' ? 'refunded' : 'deposit'}</span><strong>{lunaToNim(receipt.depositLuna)} NIM</strong></div>
-        {active ? <QrPanel value={returnLink} label="show this when you return it" helper="The merchant scans this receipt, verifies your deposit on Nimiq, then refunds it." shareTitle="turn return receipt" /> : null}
+        <div className="receipt-amount"><span>{receipt.status === 'refunded' ? 'Refunded' : 'Deposit'}</span><strong>{lunaToNim(receipt.depositLuna)} NIM</strong></div>
+        {active ? <QrPanel value={returnLink} label="Show this when you return it" helper="The merchant scans this receipt, verifies your deposit on Nimiq, then refunds it." shareTitle="turn return receipt" /> : null}
         {submitted ? <div className="pending-panel"><LoaderCircle className={busy === 'chain' ? 'spin' : ''} /><strong>Waiting for on-chain confirmation</strong><span>Your transaction hash is saved on this device.</span></div> : null}
-        {receipt.status === 'refunded' ? <div className="complete-panel"><CheckCircle2 /><div><strong>deposit returned</strong><span>The matching refund was found on Nimiq.</span></div></div> : null}
-        <button className="button button--quiet" type="button" onClick={onRefresh} disabled={busy !== 'idle'}><RefreshCw size={17} className={busy === 'chain' ? 'spin' : ''} /> {receipt.status === 'refunded' ? 'verify again' : 'check status'}</button>
-        <TxFootnote hash={receipt.txHash} label="deposit transaction" />
-        {receipt.refundTxHash ? <TxFootnote hash={receipt.refundTxHash} label="refund transaction" /> : null}
+        {receipt.status === 'refunded' ? <div className="complete-panel"><CheckCircle2 /><div><strong>Deposit returned</strong><span>The matching refund was found on Nimiq.</span></div></div> : null}
+        <button className="button button--quiet" type="button" onClick={onRefresh} disabled={busy !== 'idle'}><RefreshCw size={17} className={busy === 'chain' ? 'spin' : ''} /> {receipt.status === 'refunded' ? 'Verify again' : 'Check status'}</button>
+        <TxFootnote hash={receipt.txHash} label="Deposit transaction" />
+        {receipt.refundTxHash ? <TxFootnote hash={receipt.refundTxHash} label="Refund transaction" /> : null}
       </section>
     </div>
   )
@@ -587,20 +587,20 @@ function MerchantView(props: {
   if (showSetup || !counter) {
     return (
       <div className="stack page-enter narrow">
-        {counter ? <button className="back-link" type="button" onClick={onCancelSetup}><ArrowLeft size={17} /> counter</button> : null}
+        {counter ? <button className="back-link" type="button" onClick={onCancelSetup}><ArrowLeft size={17} /> Counter</button> : null}
         <section className="utility-card setup-card">
           <span className="eyebrow"><Store size={14} /> one-minute setup</span>
-          <h1>make a return counter.</h1>
+          <h1>Make a return counter.</h1>
           <p>Choose the wallet that receives deposits, name the item, and set one refundable amount.</p>
           {merchantAccounts.length === 0 ? (
-            <button className="button button--gold" type="button" onClick={onConnect} disabled={busy !== 'idle'}>{busy === 'wallet' ? <LoaderCircle className="spin" /> : <WalletCards />} authorise merchant wallet</button>
+            <button className="button button--gold" type="button" onClick={onConnect} disabled={busy !== 'idle'}>{busy === 'wallet' ? <LoaderCircle className="spin" /> : <WalletCards />} Authorise merchant wallet</button>
           ) : (
             <form className="setup-form" onSubmit={onSaveSetup}>
-              <label><span>merchant name</span><input value={merchantName} onChange={(event) => onMerchantName(event.target.value)} placeholder="Loop Coffee" maxLength={40} /></label>
-              <label><span>returnable item</span><input value={itemName} onChange={(event) => onItemName(event.target.value)} placeholder="Reusable cup" maxLength={40} /></label>
-              <label><span>deposit</span><div className="amount-input"><input inputMode="decimal" value={depositNim} onChange={(event) => onDepositNim(event.target.value)} /><b>NIM</b></div></label>
-              <label><span>receiving wallet</span><select value={selectedAccount} onChange={(event) => onSelectedAccount(event.target.value)}>{merchantAccounts.map((account) => <option key={account} value={account}>{shortAddress(account)}</option>)}</select></label>
-              <button className="button button--gold button--large" type="submit">create counter <ArrowRight size={18} /></button>
+              <label><span>Merchant name</span><input value={merchantName} onChange={(event) => onMerchantName(event.target.value)} placeholder="Loop Coffee" maxLength={40} /></label>
+              <label><span>Returnable item</span><input value={itemName} onChange={(event) => onItemName(event.target.value)} placeholder="Reusable cup" maxLength={40} /></label>
+              <label><span>Deposit</span><div className="amount-input"><input inputMode="decimal" value={depositNim} onChange={(event) => onDepositNim(event.target.value)} /><b>NIM</b></div></label>
+              <label><span>Receiving wallet</span><select value={selectedAccount} onChange={(event) => onSelectedAccount(event.target.value)}>{merchantAccounts.map((account) => <option key={account} value={account}>{shortAddress(account)}</option>)}</select></label>
+              <button className="button button--gold button--large" type="submit">Create counter <ArrowRight size={18} /></button>
             </form>
           )}
         </section>
@@ -612,22 +612,22 @@ function MerchantView(props: {
   return (
     <div className="stack page-enter merchant-layout">
       <section className="counter-card utility-card">
-        <div className="counter-heading"><div><span className="eyebrow">live counter</span><h1>{counter.merchantName}</h1><p>{counter.itemName} · {lunaToNim(counter.depositLuna)} NIM refundable</p></div><span className="live-badge"><i /> ready</span></div>
-        <QrPanel value={counterLink} label="customer counter" helper="Customers scan this before taking the item." shareTitle={`${counter.merchantName} turn counter`} shareText={`${counter.itemName} — ${lunaToNim(counter.depositLuna)} NIM refundable deposit`} compact />
-        <div className="counter-wallet"><span>receiving wallet</span><code>{shortAddress(counter.merchantAddress)}</code></div>
+        <div className="counter-heading"><div><span className="eyebrow">live counter</span><h1>{counter.merchantName}</h1><p>{counter.itemName} · {lunaToNim(counter.depositLuna)} NIM refundable</p></div><span className="live-badge"><i /> Ready</span></div>
+        <QrPanel value={counterLink} label="Customer counter" helper="Customers scan this before taking the item." shareTitle={`${counter.merchantName} turn counter`} shareText={`${counter.itemName} — ${lunaToNim(counter.depositLuna)} NIM refundable deposit`} compact />
+        <div className="counter-wallet"><span>Receiving wallet</span><code>{shortAddress(counter.merchantAddress)}</code></div>
       </section>
 
       <section className="return-action utility-card utility-card--gold-edge">
         <div className="return-action-icon"><RotateCcw /></div>
         <span className="eyebrow">item came back?</span>
-        <h2>scan the customer’s receipt.</h2>
+        <h2>Scan the customer’s receipt.</h2>
         <p>turn will verify the original deposit on Nimiq before any refund can be requested.</p>
         {!merchantConnected ? (
-          <button className="button button--gold button--large" type="button" onClick={onConnect} disabled={busy !== 'idle'}>{busy === 'wallet' ? <LoaderCircle className="spin" /> : <WalletCards />} authorise refund wallet</button>
+          <button className="button button--gold button--large" type="button" onClick={onConnect} disabled={busy !== 'idle'}>{busy === 'wallet' ? <LoaderCircle className="spin" /> : <WalletCards />} Authorise refund wallet</button>
         ) : (
-          <button className="button button--gold button--large" type="button" onClick={onScanReturn} disabled={busy !== 'idle'}><ScanLine /> scan return receipt</button>
+          <button className="button button--gold button--large" type="button" onClick={onScanReturn} disabled={busy !== 'idle'}><ScanLine /> Scan return receipt</button>
         )}
-        <button className="text-button" type="button" onClick={onSetup}>edit counter</button>
+        <button className="text-button" type="button" onClick={onSetup}>Edit counter</button>
       </section>
     </div>
   )
@@ -637,29 +637,29 @@ function ReturnReviewView({ review, busy, onBack, onRefund }: { review: ReturnRe
   const { deposit, alreadyRefunded } = review
   return (
     <div className="stack page-enter narrow">
-      <button className="back-link" type="button" onClick={onBack}><ArrowLeft size={17} /> return desk</button>
+      <button className="back-link" type="button" onClick={onBack}><ArrowLeft size={17} /> Return desk</button>
       <section className={`utility-card refund-card ${alreadyRefunded ? 'refund-card--done' : ''}`}>
         <div className="verification-seal">{alreadyRefunded ? <CheckCircle2 /> : <ShieldCheck />}</div>
         <span className="eyebrow">{alreadyRefunded ? 'already completed' : 'deposit verified on Nimiq'}</span>
-        <h1>{alreadyRefunded ? 'refund already sent.' : 'confirm the item is back.'}</h1>
+        <h1>{alreadyRefunded ? 'Refund already sent.' : 'Confirm the item is back.'}</h1>
         <div className="verification-table">
-          <div><span>original deposit</span><strong>{lunaToNim(deposit.valueLuna)} NIM</strong></div>
-          <div><span>refund to</span><code>{shortAddress(deposit.sender)}</code></div>
-          <div><span>received by</span><code>{shortAddress(deposit.recipient)}</code></div>
-          <div><span>deposit tx</span><code>{shortHash(deposit.txHash)}</code></div>
+          <div><span>Original deposit</span><strong>{lunaToNim(deposit.valueLuna)} NIM</strong></div>
+          <div><span>Refund to</span><code>{shortAddress(deposit.sender)}</code></div>
+          <div><span>Received by</span><code>{shortAddress(deposit.recipient)}</code></div>
+          <div><span>Deposit tx</span><code>{shortHash(deposit.txHash)}</code></div>
         </div>
         {alreadyRefunded ? (
-          <div className="complete-panel"><CheckCircle2 /><div><strong>no second refund requested</strong><span>A matching refund is already included on-chain.</span></div></div>
+          <div className="complete-panel"><CheckCircle2 /><div><strong>No second refund requested</strong><span>A matching refund is already included on-chain.</span></div></div>
         ) : (
           <>
-            <div className="physical-check"><PackageCheck /><div><strong>physical check</strong><span>Only continue after you have the returned item in hand.</span></div></div>
+            <div className="physical-check"><PackageCheck /><div><strong>Physical check</strong><span>Only continue after you have the returned item in hand.</span></div></div>
             <button className="button button--gold button--large" type="button" onClick={onRefund} disabled={busy !== 'idle'}>
-              {busy === 'refund-wallet' ? <><LoaderCircle className="spin" /> approve refund</> : busy === 'refund-chain' ? <><LoaderCircle className="spin" /> confirming refund</> : <><CircleDollarSign /> refund {lunaToNim(deposit.valueLuna)} NIM</>}
+              {busy === 'refund-wallet' ? <><LoaderCircle className="spin" /> Approve refund</> : busy === 'refund-chain' ? <><LoaderCircle className="spin" /> Confirming refund</> : <><CircleDollarSign /> Refund {lunaToNim(deposit.valueLuna)} NIM</>}
             </button>
             <p className="field-note">Prefer the same Nimiq account that received the deposit ({shortAddress(deposit.recipient)}). The native approval screen shows the sending wallet.</p>
           </>
         )}
-        {review.refundTxHash ? <TxFootnote hash={review.refundTxHash} label="refund transaction" /> : null}
+        {review.refundTxHash ? <TxFootnote hash={review.refundTxHash} label="Refund transaction" /> : null}
       </section>
     </div>
   )
@@ -670,7 +670,7 @@ function OutsideNimiqPay() {
   return (
     <section className="outside-card">
       <div><span className="eyebrow">preview mode</span><strong>Wallet actions live inside Nimiq Pay.</strong><p>You can browse turn here, but deposits and refunds need Nimiq Pay’s native approval screen.</p></div>
-      <a className="button button--quiet button--small" href={deepLink}>open in Nimiq Pay <ExternalLink size={15} /></a>
+      <a className="button button--quiet button--small" href={deepLink}>Open in Nimiq Pay <ExternalLink size={15} /></a>
     </section>
   )
 }
@@ -680,7 +680,7 @@ function Alert({ tone, text, onClose }: { tone: 'error' | 'success'; text: strin
 }
 
 function StatusPill({ status }: { status: TurnReceipt['status'] }) {
-  const label = status === 'active' ? 'returnable' : status === 'refunded' ? 'returned' : 'checking'
+  const label = status === 'active' ? 'Returnable' : status === 'refunded' ? 'Returned' : 'Checking'
   return <span className={`status-pill status-pill--${status}`}>{label}</span>
 }
 

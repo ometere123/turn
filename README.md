@@ -4,6 +4,8 @@
 
 turn is a focused Nimiq Pay Mini App for refundable deposits on reusable items such as cups, containers, event gear, or other items a merchant expects back.
 
+**Production:** https://turn-nimiq.vercel.app/
+
 A customer scans a merchant counter, pays a NIM deposit, and receives a return receipt. When the item comes back, the merchant scans that receipt. turn independently verifies the original deposit on the Nimiq blockchain, derives the customer's refund address from that transaction, checks for an existing matching refund, and asks Nimiq Pay to return the exact deposit amount.
 
 ## Why the architecture is intentionally small
@@ -67,6 +69,7 @@ The Mini App SDK does not expose a sender-selection argument for NIM payments. T
 - `qr-scanner` for camera handoff
 - `qrcode` for counter and receipt QR generation
 - localStorage only for non-authoritative convenience state
+- Vercel for the production HTTPS deployment
 
 ## Development
 
@@ -75,6 +78,8 @@ Requirements: Node.js 22+.
 ```bash
 npm install
 npm test
+npm run typecheck
+npm run build
 npm run dev
 ```
 
@@ -119,20 +124,17 @@ There is no protocol-level escrow or atomic refund lock. turn prevents accidenta
 
 ## Quality gates
 
-```bash
-npm test
-npm run typecheck
-npm run build
-```
+GitHub Actions runs the automated test, typecheck, and production build gates on every push. Vercel deploys the `main` branch to the production URL above.
 
-GitHub Actions runs all three on every push. A Pages workflow builds the production MainAlbatross bundle for an HTTPS deployment suitable for Nimiq Pay real-device testing.
+The final release gate is real-device testing inside the current Nimiq Pay app. See [`docs/TEST-MATRIX.md`](docs/TEST-MATRIX.md) for the exact acceptance flow and [`docs/SUBMISSION.md`](docs/SUBMISSION.md) for the competition-ready description, demo script, and promotion copy.
 
-See:
+Additional documentation:
 
 - [`docs/RESEARCH.md`](docs/RESEARCH.md) — API and architecture closure
-- [`docs/PRD.md`](docs/PRD.md) — tiny product specification
+- [`docs/PRD.md`](docs/PRD.md) — product specification
 - [`docs/TEST-MATRIX.md`](docs/TEST-MATRIX.md) — acceptance and failure cases
-- [`AGENTS.md`](AGENTS.md) — guardrails for any later implementation agent
+- [`docs/SUBMISSION.md`](docs/SUBMISSION.md) — submission and launch package
+- [`AGENTS.md`](AGENTS.md) — guardrails for later implementation work
 
 ## Competition scope
 

@@ -78,10 +78,10 @@ export function ScannerModal({ open, title, helper, placeholder, onClose, onResu
 
         <div className="or-rule"><span>or</span></div>
         <form className="manual-entry" onSubmit={submitManual}>
-          <label htmlFor="manual-code"><Keyboard size={15} /> paste instead</label>
+          <label htmlFor="manual-code"><Keyboard size={15} /> Paste instead</label>
           <div className="input-row">
             <input id="manual-code" value={manual} onChange={(event) => setManual(event.target.value)} placeholder={placeholder} autoCapitalize="off" autoCorrect="off" />
-            <button className="button button--gold button--small" type="submit" disabled={!manual.trim()}>use</button>
+            <button className="button button--gold button--small" type="submit" disabled={!manual.trim()}>Use</button>
           </div>
         </form>
       </section>

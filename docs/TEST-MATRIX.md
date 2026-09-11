@@ -1,6 +1,8 @@
 # turn — acceptance and failure matrix
 
-The unit suite is necessary but not sufficient. Wallet and WebView behaviours must be tested on the current Nimiq Pay build before competition submission.
+The automated suite is necessary but not sufficient. Wallet, camera, WebView, and real transaction behaviour must be tested on the current Nimiq Pay build before competition submission.
+
+Production URL: https://turn-nimiq.vercel.app/
 
 ## Automated
 
@@ -16,44 +18,51 @@ The unit suite is necessary but not sufficient. Wallet and WebView behaviours mu
 | protocol | return URL | only transaction hash is authoritative |
 | network | `MainAlbatross` vs `main-albatross` | treated as same network |
 
-## Real-device Gate 0
+## Real-device release gate
 
-Do these before cosmetic expansion or competition submission:
+Run the full flow inside the current Nimiq Pay app with two different wallets. Use Testnet first if the current app supports switching to TestAlbatross, then repeat one tiny deposit/refund smoke cycle on MainAlbatross before final submission.
 
 | # | Test | Pass condition |
 |---|---|---|
-| 1 | open production HTTPS URL in Nimiq Pay | provider initialises without console error |
-| 2 | `listAccounts()` | native confirmation appears; rejection returns controlled UI |
-| 3 | create counter | selected receiving account survives refresh |
-| 4 | scan counter QR | correct merchant/item/amount shown |
-| 5 | cancel deposit | nothing marked paid; retry works |
-| 6 | make tiny real deposit | SDK returns tx hash |
-| 7 | verify deposit | light client reaches consensus and finds correct included tx/data |
-| 8 | reload customer | receipt still available |
-| 9 | recover by tx hash | receipt reconstructs financial state |
-| 10 | camera denied | paste fallback remains fully usable |
-| 11 | scan receipt on merchant | original customer, merchant, value derived from chain |
-| 12 | cancel refund | deposit stays refundable |
-| 13 | make exact real refund | prefer the same account that received deposit and confirm sender shown in Nimiq Pay |
-| 14 | verify refund | matching included tx marks receipt complete |
-| 15 | scan receipt again | app says already refunded and does not request another payment |
+| 1 | open production HTTPS URL in Nimiq Pay | provider initialises and the app shows Nimiq Pay rather than Preview |
+| 2 | authorise merchant wallet | native account confirmation appears; rejecting it returns controlled UI |
+| 3 | create counter | selected receiving account, merchant, item, and amount display correctly |
+| 4 | refresh merchant screen | saved counter remains available |
+| 5 | customer scans counter QR | correct merchant, item, amount, and receiving address are shown before approval |
+| 6 | cancel deposit | nothing is marked paid; retry remains available |
+| 7 | make tiny deposit | native approval succeeds and SDK returns a transaction hash |
+| 8 | verify deposit | light client reaches consensus and finds the included transaction with exact recipient, value, network, and deposit marker |
+| 9 | reload customer | submitted/active receipt remains available on the device |
+| 10 | recover by transaction hash | receipt reconstructs authoritative financial state from chain |
+| 11 | camera denied | paste fallback remains fully usable |
+| 12 | merchant scans return receipt | original customer, merchant, amount, and nonce are derived from chain rather than QR fields |
+| 13 | wrong merchant wallet authorised | refund review refuses to proceed for a deposit received by another merchant wallet |
+| 14 | cancel refund | deposit remains refundable and no completion state is shown |
+| 15 | make exact refund | native approval sends the original amount to the original customer with the matching refund marker |
+| 16 | verify refund | included matching transaction marks the receipt complete |
+| 17 | scan receipt again | app reports the existing refund and does not request another payment |
+| 18 | repeat one tiny cycle on MainAlbatross | production payment and refund loop completes end to end |
 
 ## Adversarial checks
 
-- edit the amount in a copied counter URL before paying;
-- replace the merchant address with an invalid address;
-- give merchant a random Nimiq transaction hash;
-- give merchant a valid non-turn payment hash;
-- give merchant another merchant's turn deposit;
-- alter the refund QR/link text;
-- attempt refund while the original merchant wallet is not authorised;
-- approve refund from a different merchant account if Nimiq Pay allows sender selection; turn must still recognise the exact-value, exact-nonce payment to the original customer and must not request a second refund;
-- tap Pay/Refund repeatedly while wallet sheet is opening;
-- lose light-client consensus mid-verification;
-- refresh during a `submitted` deposit;
-- deny camera permission permanently;
-- disable Clipboard API and verify manual selection/paste is still usable.
+- Edit the amount in a copied counter URL before paying and confirm the altered value is what the customer is explicitly shown before native wallet approval.
+- Replace the merchant address with an invalid address and confirm payment is blocked.
+- Give the merchant a random Nimiq transaction hash.
+- Give the merchant a valid non-turn payment hash.
+- Give the merchant another merchant's turn deposit.
+- Alter return-link text around the transaction hash and confirm only a valid deposit transaction is accepted.
+- Attempt refund while the original merchant wallet is not authorised.
+- If Nimiq Pay allows choosing another authorised merchant sender for the refund, confirm turn still recognises the exact-value, exact-nonce payment to the original customer and never requests a second refund.
+- Tap Pay or Refund repeatedly while the native wallet sheet is opening.
+- Interrupt or lose light-client consensus during verification.
+- Refresh during a `submitted` deposit.
+- Deny camera permission permanently.
+- Disable Clipboard API and verify manual selection/paste remains usable.
+
+## Release decision
+
+Do not describe the product as fully acceptance-tested until the real-device gate above has been completed. A green CI build proves source-level quality gates, not Nimiq Pay wallet acceptance.
 
 ## Known non-goal
 
-Cross-device atomic duplicate-refund prevention is not claimed. Test copy explicitly and documentation must remain truthful about that boundary.
+Cross-device atomic duplicate-refund prevention is not claimed. turn prevents accidental duplicates on one device and rechecks the chain before refunding, but two merchant devices could still race before either refund is included. Product copy and competition materials must remain truthful about that boundary.
