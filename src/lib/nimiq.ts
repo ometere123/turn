@@ -7,6 +7,7 @@ import {
   normaliseAddress,
   normaliseNetwork,
   parseDepositMemo,
+  parseDepositRefundAddress,
   refundMemo,
 } from './protocol.ts'
 
@@ -83,8 +84,10 @@ export async function getClient(): Promise<Nimiq.Client> {
   return clientPromise
 }
 
-export async function sendDeposit(counter: CounterConfig, nonce: string): Promise<string> {
+export async function sendDeposit(counter: CounterConfig, nonce: string, refundAddress: string): Promise<string> {
   await waitForWalletConsensus()
+  const cleanRefundAddress = normaliseAddress(refundAddress)
+  if (!(await validateAddress(cleanRefundAddress))) throw new Error('The authorised refund address is invalid.')
   const guardKey = depositGuardKey(counter)
   beginSendGuard(guardKey, 'A recent deposit for this counter may already exist. Check My returns or the merchant wallet before paying again.')
 
@@ -95,14 +98,14 @@ export async function sendDeposit(counter: CounterConfig, nonce: string): Promis
       result = await provider.sendBasicTransactionWithData({
         recipient: counter.merchantAddress,
         value: counter.depositLuna,
-        data: depositMemo(nonce),
+        data: depositMemo(nonce, cleanRefundAddress),
       })
     } catch (error) {
       if (isUserCancellation(error)) {
         clearSendGuard(guardKey)
         throw error
       }
-      const recovered = await reconcileDeposit(counter, nonce)
+      const recovered = await reconcileDeposit(counter, nonce, cleanRefundAddress)
       if (recovered) {
         finishSendGuard(guardKey, recovered.transactionHash)
         return recovered.transactionHash.toLowerCase()
@@ -120,7 +123,7 @@ export async function sendDeposit(counter: CounterConfig, nonce: string): Promis
       clearSendGuard(guardKey)
       throw responseError
     }
-    const recovered = await reconcileDeposit(counter, nonce)
+    const recovered = await reconcileDeposit(counter, nonce, cleanRefundAddress)
     if (recovered) {
       finishSendGuard(guardKey, recovered.transactionHash)
       return recovered.transactionHash.toLowerCase()
@@ -134,6 +137,7 @@ export async function sendDeposit(counter: CounterConfig, nonce: string): Promis
 
 export async function sendRefund(deposit: VerifiedDeposit): Promise<string> {
   await waitForWalletConsensus()
+  const refundAddress = requireRefundAddress(deposit)
   const guardKey = refundGuardKey(deposit)
   beginSendGuard(guardKey, 'A refund for this deposit may already have been sent. Check its status before trying again.')
 
@@ -142,7 +146,7 @@ export async function sendRefund(deposit: VerifiedDeposit): Promise<string> {
     let result: unknown
     try {
       result = await provider.sendBasicTransactionWithData({
-        recipient: deposit.sender,
+        recipient: refundAddress,
         value: deposit.valueLuna,
         data: refundMemo(deposit.nonce),
       })
@@ -183,12 +187,13 @@ export async function sendRefund(deposit: VerifiedDeposit): Promise<string> {
 
 export async function waitForDeposit(
   txHash: string,
-  expected?: { recipient?: string; valueLuna?: number; nonce?: string },
+  expected?: { recipient?: string; valueLuna?: number; nonce?: string; refundAddress?: string },
   timeoutMs = 90_000,
 ): Promise<VerifiedDeposit> {
   const tx = await waitForIncludedTransaction(txHash, timeoutMs)
   const data = decodeTransactionData(tx.data)
   const nonce = parseDepositMemo(data)
+  const refundAddress = parseDepositRefundAddress(data) ?? undefined
   if (!nonce) throw new Error('This transaction is not a turn deposit.')
   if (expected?.recipient && normaliseAddress(tx.recipient) !== normaliseAddress(expected.recipient)) {
     throw new Error('The payment recipient does not match this counter.')
@@ -199,27 +204,33 @@ export async function waitForDeposit(
   if (expected?.nonce && nonce !== expected.nonce) {
     throw new Error('The payment receipt does not match this deposit attempt.')
   }
+  if (expected?.refundAddress && normaliseAddress(refundAddress ?? '') !== normaliseAddress(expected.refundAddress)) {
+    throw new Error('The refund address does not match the customer-authorised address.')
+  }
   return {
     txHash: tx.transactionHash.toLowerCase(),
     sender: normaliseAddress(tx.sender),
     recipient: normaliseAddress(tx.recipient),
     valueLuna: tx.value,
     nonce,
+    refundAddress,
     blockHeight: tx.blockHeight,
     confirmations: tx.confirmations,
   }
 }
 
 export async function findExistingRefund(deposit: VerifiedDeposit): Promise<ChainTransaction | null> {
+  if (!deposit.refundAddress) return null
+  const refundAddress = normaliseAddress(deposit.refundAddress)
   const client = await getClient()
   await waitForClientConsensus(client, 30_000)
-  const transactions = (await client.getTransactionsByAddress(deposit.sender)) as unknown as ChainTransaction[]
+  const transactions = (await client.getTransactionsByAddress(refundAddress)) as unknown as ChainTransaction[]
   const expectedData = refundMemo(deposit.nonce)
   return (
     transactions.find((tx) =>
       isConfirmed(tx)
       && tx.executionResult === true
-      && normaliseAddress(tx.recipient) === normaliseAddress(deposit.sender)
+      && normaliseAddress(tx.recipient) === refundAddress
       && tx.value === deposit.valueLuna
       && decodeTransactionData(tx.data) === expectedData,
     ) ?? null
@@ -231,9 +242,10 @@ export async function waitForRefund(
   deposit: VerifiedDeposit,
   timeoutMs = 90_000,
 ): Promise<ChainTransaction> {
+  const refundAddress = requireRefundAddress(deposit)
   const tx = await waitForIncludedTransaction(txHash, timeoutMs)
   const expectedData = refundMemo(deposit.nonce)
-  if (normaliseAddress(tx.recipient) !== normaliseAddress(deposit.sender)) throw new Error('The refund recipient does not match the original customer.')
+  if (normaliseAddress(tx.recipient) !== refundAddress) throw new Error('The refund recipient does not match the customer-authorised address.')
   if (tx.value !== deposit.valueLuna) throw new Error('The refund amount does not match the original deposit.')
   if (decodeTransactionData(tx.data) !== expectedData) throw new Error('The refund marker does not match the original deposit.')
   return tx
@@ -261,9 +273,6 @@ export async function waitForIncludedTransaction(txHash: string, timeoutMs = 90_
         return tx
       }
 
-      // Included transactions are not final yet. A temporary failed execution can be
-      // replaced before macro-block confirmation, so keep waiting instead of reporting
-      // a terminal failure or success.
       if (state === 'included' || state === 'mined') {
         await sleep(1_000)
         continue
@@ -290,8 +299,8 @@ export async function validateAddress(address: string): Promise<boolean> {
   }
 }
 
-async function reconcileDeposit(counter: CounterConfig, nonce: string, timeoutMs = 20_000): Promise<ChainTransaction | null> {
-  const expectedData = depositMemo(nonce)
+async function reconcileDeposit(counter: CounterConfig, nonce: string, refundAddress: string, timeoutMs = 20_000): Promise<ChainTransaction | null> {
+  const expectedData = depositMemo(nonce, refundAddress)
   return findMatchingTransaction(counter.merchantAddress, timeoutMs, (tx) =>
     normaliseAddress(tx.recipient) === normaliseAddress(counter.merchantAddress)
     && tx.value === counter.depositLuna
@@ -300,9 +309,10 @@ async function reconcileDeposit(counter: CounterConfig, nonce: string, timeoutMs
 }
 
 async function reconcileRefund(deposit: VerifiedDeposit, timeoutMs = 20_000): Promise<ChainTransaction | null> {
+  const refundAddress = requireRefundAddress(deposit)
   const expectedData = refundMemo(deposit.nonce)
-  return findMatchingTransaction(deposit.sender, timeoutMs, (tx) =>
-    normaliseAddress(tx.recipient) === normaliseAddress(deposit.sender)
+  return findMatchingTransaction(refundAddress, timeoutMs, (tx) =>
+    normaliseAddress(tx.recipient) === refundAddress
     && tx.value === deposit.valueLuna
     && decodeTransactionData(tx.data) === expectedData,
   )
@@ -337,6 +347,12 @@ async function waitForClientConsensus(client: Nimiq.Client, timeoutMs: number): 
     await sleep(1_000)
   }
   throw new Error('turn is still syncing with Nimiq. Try this check again shortly.')
+}
+
+function requireRefundAddress(deposit: VerifiedDeposit): string {
+  const refundAddress = normaliseAddress(deposit.refundAddress ?? '')
+  if (!refundAddress) throw new Error('This older deposit has no customer-authorised refund address. Do not refund it through turn; use a fresh deposit.')
+  return refundAddress
 }
 
 function depositGuardKey(counter: CounterConfig): string {
