@@ -218,7 +218,6 @@ export async function findExistingRefund(deposit: VerifiedDeposit): Promise<Chai
   return (
     transactions.find((tx) =>
       isIncluded(tx)
-      && tx.valid
       && tx.executionResult !== false
       && normaliseAddress(tx.recipient) === normaliseAddress(deposit.sender)
       && tx.value === deposit.valueLuna
@@ -255,7 +254,7 @@ export async function waitForIncludedTransaction(txHash: string, timeoutMs = 90_
       reachedConsensus = true
       const tx = (await client.getTransaction(txHash)) as unknown as ChainTransaction
       if (isIncluded(tx)) {
-        if (!tx.valid || tx.executionResult === false) throw new Error('The transaction was included but is not valid.')
+        if (tx.executionResult === false) throw new Error('The transaction was included but execution failed.')
         if (tx.network && normaliseNetwork(tx.network) !== normaliseNetwork(NETWORK)) throw new Error('The transaction is on the wrong Nimiq network.')
         return tx
       }
@@ -265,7 +264,7 @@ export async function waitForIncludedTransaction(txHash: string, timeoutMs = 90_
     await sleep(1_500)
   }
 
-  if (lastError instanceof Error && /wrong Nimiq network|not valid/i.test(lastError.message)) throw lastError
+  if (lastError instanceof Error && /wrong Nimiq network|execution failed/i.test(lastError.message)) throw lastError
   if (!reachedConsensus) {
     throw new Error('turn is still syncing with Nimiq. Your submitted payment is saved; keep this screen open or tap Check status again shortly.')
   }
@@ -310,7 +309,7 @@ async function findMatchingTransaction(
     while (Date.now() - started < timeoutMs) {
       if (await client.isConsensusEstablished()) {
         const transactions = (await client.getTransactionsByAddress(address)) as unknown as ChainTransaction[]
-        const match = transactions.find((tx) => isIncluded(tx) && tx.valid !== false && tx.executionResult !== false && matches(tx))
+        const match = transactions.find((tx) => isIncluded(tx) && tx.executionResult !== false && matches(tx))
         if (match) return match
       }
       await sleep(1_000)
@@ -377,7 +376,8 @@ function providerResponseError(response: unknown, fallback: string): Error {
 }
 
 function isIncluded(tx: ChainTransaction): boolean {
-  return String(tx.state).toLowerCase() === 'included'
+  const state = String(tx.state).toLowerCase()
+  return state === 'included' || state === 'confirmed' || state === 'mined'
 }
 
 function sleep(ms: number): Promise<void> {
