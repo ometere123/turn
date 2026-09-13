@@ -118,7 +118,7 @@ export function TurnTools() {
 
       <div style={section}><div style={sectionTitle}><History size={16}/> Receipt lifecycle</div>{receipts.length ? receipts.slice(0,10).map((receipt) => <button key={receipt.txHash} type="button" style={{...rowStyle,width:'100%',border:0,color:'inherit',cursor:'pointer'}} onClick={() => shareReceipt(receipt)}><span><strong>{receipt.itemName}</strong><small style={muted}>{receipt.merchantName} · {lunaToNim(receipt.depositLuna)} NIM</small></span><span style={{textAlign:'right'}}><b>{receipt.status === 'refunded' ? 'Completed' : receipt.status === 'active' ? 'Ready to return' : 'Confirming'}</b><small style={muted}>tap to share proof</small></span></button>) : <small style={muted}>No receipts on this device yet.</small>}</div>
 
-      <div style={latency}><Check size={17}/><span><strong>Safe confirmation flow</strong><small>Submitted transactions are saved immediately when storage is available. Confirmation can take several minutes; never pay again while a receipt is confirming.</small></span></div>
+      <div style={latency}><Check size={17} style={{flexShrink:0,marginTop:2}}/><div style={latencyCopy}><strong style={latencyTitle}>Safe confirmation flow</strong><small style={latencyBody}>Submitted transactions are saved immediately when storage is available. Confirmation can take several minutes; never pay again while a receipt is confirming.</small></div></div>
     </section>
   </div>
 }
@@ -144,4 +144,7 @@ const rowStyle: React.CSSProperties={display:'flex',justifyContent:'space-betwee
 const muted: React.CSSProperties={display:'block',marginTop:3,color:'#8ea3ae',fontSize:12}
 const chips: React.CSSProperties={display:'flex',gap:7,flexWrap:'wrap'}
 const chip: React.CSSProperties={padding:'8px 10px',borderRadius:999,border:'1px solid #314655',background:'#102633',color:'#dce7ed',fontSize:12}
-const latency: React.CSSProperties={display:'flex',gap:10,marginTop:20,padding:'14px',borderRadius:16,background:'#1b302c',color:'#a9efd3'}
+const latency: React.CSSProperties={display:'flex',alignItems:'flex-start',gap:10,marginTop:20,padding:'14px',borderRadius:16,background:'#1b302c',color:'#a9efd3'}
+const latencyCopy: React.CSSProperties={display:'grid',gap:6,minWidth:0}
+const latencyTitle: React.CSSProperties={display:'block',lineHeight:1.25}
+const latencyBody: React.CSSProperties={display:'block',lineHeight:1.5,color:'#a9efd3',fontSize:13}
