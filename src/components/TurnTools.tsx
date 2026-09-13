@@ -19,7 +19,7 @@ const PRESETS = [
 function pausedIds(): string[] {
   try { return JSON.parse(localStorage.getItem(PAUSED_KEY) ?? '[]') as string[] } catch { return [] }
 }
-function savePaused(ids: string[]) { localStorage.setItem(PAUSED_KEY, JSON.stringify(ids)) }
+function savePaused(ids: string[]) { try { localStorage.setItem(PAUSED_KEY, JSON.stringify(ids)) } catch { /* Local preference only. */ } }
 function appBase() { return new URL(import.meta.env.BASE_URL, window.location.origin).toString() }
 
 export function TurnTools() {
@@ -56,7 +56,7 @@ export function TurnTools() {
 
   async function shareCounter() {
     if (!selected) return
-    if (paused.includes(selected.id)) { setMessage('Resume this counter before sharing it.'); return }
+    if (paused.includes(selected.id)) { setMessage('Sharing is disabled for this counter on this device. Enable sharing first.'); return }
     const url = buildCounterLink(appBase(), selected)
     if (navigator.share) await navigator.share({ title: `${selected.merchantName} turn counter`, text: `${selected.itemName} · ${lunaToNim(selected.depositLuna)} NIM refundable deposit`, url }).catch(() => undefined)
     else { await copyText(url); setMessage('Counter link copied.') }
@@ -71,7 +71,10 @@ export function TurnTools() {
   function togglePause() {
     if (!selected) return
     const next = paused.includes(selected.id) ? paused.filter((id) => id !== selected.id) : [...paused, selected.id]
-    savePaused(next); setPaused(next); setMessage(next.includes(selected.id) ? 'Counter paused on this device. Existing shared links remain valid.' : 'Counter resumed.')
+    savePaused(next); setPaused(next)
+    setMessage(next.includes(selected.id)
+      ? 'Sharing disabled on this device. Existing links and QR codes remain valid.'
+      : 'Sharing enabled on this device.')
   }
 
   function createPreset(itemName: string, nim: string) {
@@ -89,32 +92,33 @@ export function TurnTools() {
   if (!open) return <button type="button" aria-label="Open turn tools" onClick={() => setOpen(true)} style={fab}><SlidersHorizontal size={20} /></button>
 
   return <div style={backdrop} onClick={() => setOpen(false)}>
-    <section style={sheet} onClick={(event) => event.stopPropagation()} aria-label="turn tools">
-      <div style={head}><div><small style={eyebrow}>TURN TOOLS</small><h2 style={{margin:'4px 0 0'}}>Run your counters.</h2></div><button style={iconButton} onClick={() => setOpen(false)}><X /></button></div>
+    <section style={sheet} onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-label="turn merchant tools">
+      <div style={head}><div><small style={eyebrow}>TURN TOOLS</small><h2 style={{margin:'4px 0 0'}}>Run your counters.</h2></div><button style={iconButton} type="button" aria-label="Close turn tools" onClick={() => setOpen(false)}><X /></button></div>
       {message ? <div style={notice}>{message}</div> : null}
 
       <label style={label}>Counter<select style={input} value={selected?.id ?? ''} onChange={(event) => { setSelectedId(event.target.value); setActivity([]) }}>{counters.map((counter) => <option key={counter.id} value={counter.id}>{counter.itemName} · {lunaToNim(counter.depositLuna)} NIM</option>)}</select></label>
 
       {selected ? <>
         <div style={actions}>
-          <button style={button} onClick={shareCounter}><Share2 size={16}/> Share counter</button>
-          <button style={button} onClick={duplicateCounter}><Copy size={16}/> Duplicate</button>
-          <button style={button} onClick={togglePause}>{paused.includes(selected.id) ? <Play size={16}/> : <Pause size={16}/>} {paused.includes(selected.id) ? 'Resume' : 'Pause'}</button>
-          <button style={button} onClick={refreshActivity} disabled={loading}><History size={16}/> {loading ? 'Syncing…' : 'Activity'}</button>
+          <button type="button" style={button} onClick={shareCounter}><Share2 size={16}/> Share counter</button>
+          <button type="button" style={button} onClick={duplicateCounter}><Copy size={16}/> Duplicate</button>
+          <button type="button" style={button} onClick={togglePause}>{paused.includes(selected.id) ? <Play size={16}/> : <Pause size={16}/>} {paused.includes(selected.id) ? 'Enable sharing' : 'Disable sharing'}</button>
+          <button type="button" style={button} onClick={refreshActivity} disabled={loading}><History size={16}/> {loading ? 'Syncing…' : 'Activity'}</button>
         </div>
 
         <div style={statsGrid}>
-          <Stat label="Deposits" value={stats.deposits}/><Stat label="Returned" value={stats.returned}/><Stat label="Outstanding" value={stats.outstanding}/>
+          <Stat label="Wallet deposits" value={stats.deposits}/><Stat label="Refunded" value={stats.returned}/><Stat label="Outstanding" value={stats.outstanding}/>
         </div>
+        <small style={activityNote}>Activity is chain-derived for {lunaToNim(selected.depositLuna)} NIM deposits to this receiving wallet. Counters using the same wallet and amount are grouped.</small>
 
-        {activity.length ? <div style={section}><div style={sectionTitle}><BarChart3 size={16}/> Merchant activity</div>{activity.map((row) => <div key={row.deposit.txHash} style={rowStyle}><span><strong>{lunaToNim(row.deposit.valueLuna)} NIM</strong><small style={muted}>{row.deposit.txHash.slice(0,9)}…{row.deposit.txHash.slice(-7)}</small></span><span style={{textAlign:'right'}}><b>{row.refunded ? 'Refunded' : 'Outstanding'}</b>{row.refundTxHash ? <small style={muted}>refund {row.refundTxHash.slice(0,8)}…</small> : null}</span></div>)}</div> : null}
+        {activity.length ? <div style={section}><div style={sectionTitle}><BarChart3 size={16}/> Wallet activity</div>{activity.map((row) => <div key={row.deposit.txHash} style={rowStyle}><span><strong>{lunaToNim(row.deposit.valueLuna)} NIM</strong><small style={muted}>{row.deposit.txHash.slice(0,9)}…{row.deposit.txHash.slice(-7)}</small></span><span style={{textAlign:'right'}}><b>{row.refunded ? 'Refunded' : 'Outstanding'}</b>{row.refundTxHash ? <small style={muted}>refund {row.refundTxHash.slice(0,8)}…</small> : null}</span></div>)}</div> : null}
 
-        <div style={section}><div style={sectionTitle}><Plus size={16}/> Quick presets</div><div style={chips}>{PRESETS.map(([name,nim]) => <button key={name} style={chip} onClick={() => createPreset(name,nim)}>{name} · {nim} NIM</button>)}</div></div>
+        <div style={section}><div style={sectionTitle}><Plus size={16}/> Quick presets</div><div style={chips}>{PRESETS.map(([name,nim]) => <button type="button" key={name} style={chip} onClick={() => createPreset(name,nim)}>{name} · {nim} NIM</button>)}</div></div>
       </> : <div style={notice}>Create your first counter from the Counter tab.</div>}
 
-      <div style={section}><div style={sectionTitle}><History size={16}/> Receipt lifecycle</div>{receipts.length ? receipts.slice(0,10).map((receipt) => <button key={receipt.txHash} style={{...rowStyle,width:'100%',border:0,color:'inherit',cursor:'pointer'}} onClick={() => shareReceipt(receipt)}><span><strong>{receipt.itemName}</strong><small style={muted}>{receipt.merchantName} · {lunaToNim(receipt.depositLuna)} NIM</small></span><span style={{textAlign:'right'}}><b>{receipt.status === 'refunded' ? 'Completed' : receipt.status === 'active' ? 'Ready to return' : 'Confirming'}</b><small style={muted}>tap to share proof</small></span></button>) : <small style={muted}>No receipts on this device yet.</small>}</div>
+      <div style={section}><div style={sectionTitle}><History size={16}/> Receipt lifecycle</div>{receipts.length ? receipts.slice(0,10).map((receipt) => <button key={receipt.txHash} type="button" style={{...rowStyle,width:'100%',border:0,color:'inherit',cursor:'pointer'}} onClick={() => shareReceipt(receipt)}><span><strong>{receipt.itemName}</strong><small style={muted}>{receipt.merchantName} · {lunaToNim(receipt.depositLuna)} NIM</small></span><span style={{textAlign:'right'}}><b>{receipt.status === 'refunded' ? 'Completed' : receipt.status === 'active' ? 'Ready to return' : 'Confirming'}</b><small style={muted}>tap to share proof</small></span></button>) : <small style={muted}>No receipts on this device yet.</small>}</div>
 
-      <div style={latency}><Check size={17}/><span><strong>Safe confirmation flow</strong><small>Submitted transactions are saved immediately. Confirmation can take several minutes; never pay again while a receipt is confirming.</small></span></div>
+      <div style={latency}><Check size={17}/><span><strong>Safe confirmation flow</strong><small>Submitted transactions are saved immediately when storage is available. Confirmation can take several minutes; never pay again while a receipt is confirming.</small></span></div>
     </section>
   </div>
 }
@@ -133,6 +137,7 @@ const actions: React.CSSProperties={display:'grid',gridTemplateColumns:'repeat(2
 const button: React.CSSProperties={display:'flex',alignItems:'center',justifyContent:'center',gap:7,padding:'11px 10px',borderRadius:13,border:'1px solid #314655',background:'#132736',color:'#eef4f6',fontWeight:700}
 const statsGrid: React.CSSProperties={display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8,marginTop:14}
 const stat: React.CSSProperties={padding:'14px 8px',textAlign:'center',borderRadius:14,background:'#102633',display:'grid',gap:3}
+const activityNote: React.CSSProperties={display:'block',marginTop:8,color:'#8ea3ae',lineHeight:1.45}
 const section: React.CSSProperties={marginTop:18,paddingTop:16,borderTop:'1px solid #203746'}
 const sectionTitle: React.CSSProperties={display:'flex',gap:7,alignItems:'center',fontWeight:800,marginBottom:10}
 const rowStyle: React.CSSProperties={display:'flex',justifyContent:'space-between',gap:12,padding:'11px 4px',borderBottom:'1px solid #1b3341',background:'transparent'}
