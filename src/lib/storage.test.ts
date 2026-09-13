@@ -1,16 +1,21 @@
 import assert from 'node:assert/strict'
 import { afterEach, beforeEach, test } from 'node:test'
 import type { MerchantCounter, TurnReceipt } from '../types.ts'
-import { deleteCounter, loadCounters, loadReceipts, receiptStorageKey, upsertCounter } from './storage.ts'
+import { deleteCounter, loadCounters, loadReceipts, receiptStorageKey, upsertCounter, upsertReceipt } from './storage.ts'
 
 class MemoryStorage implements Storage {
-  private values = new Map<string, string>()
+  protected values = new Map<string, string>()
   get length() { return this.values.size }
   clear() { this.values.clear() }
   getItem(key: string) { return this.values.get(key) ?? null }
   key(index: number) { return Array.from(this.values.keys())[index] ?? null }
   removeItem(key: string) { this.values.delete(key) }
   setItem(key: string, value: string) { this.values.set(key, value) }
+}
+
+class ReadOnlyStorage extends MemoryStorage {
+  override setItem(): void { throw new Error('storage unavailable') }
+  override removeItem(): void { throw new Error('storage unavailable') }
 }
 
 let previousStorage: PropertyDescriptor | undefined
@@ -46,6 +51,7 @@ function receipt(txHash: string): TurnReceipt {
     itemName: 'Reusable cup',
     merchantAddress: 'NQ1200000000000000000000000000000000',
     depositLuna: 100_000,
+    refundAddress: 'NQ34AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
     createdAt: 1,
     status: 'active',
   }
@@ -104,4 +110,24 @@ test('legacy receipts migrate only into the mainnet namespace', () => {
   assert.equal(receipts[0]?.txHash, legacyReceipt.txHash)
   assert.equal(localStorage.getItem('turn:receipts:v1'), null)
   assert.ok(localStorage.getItem('turn:receipts:v2:mainnet'))
+})
+
+test('malformed persisted receipts are ignored instead of reaching the UI', () => {
+  const valid = receipt('b'.repeat(64))
+  const invalidAmount = { ...receipt('c'.repeat(64)), depositLuna: -1 }
+  const invalidHash = { ...receipt('d'.repeat(64)), txHash: 'not-a-hash' }
+  const invalidAddress = { ...receipt('e'.repeat(64)), refundAddress: 'not-an-address' }
+  localStorage.setItem(receiptStorageKey(), JSON.stringify([valid, invalidAmount, invalidHash, invalidAddress]))
+
+  const receipts = loadReceipts()
+  assert.equal(receipts.length, 1)
+  assert.equal(receipts[0]?.txHash, valid.txHash)
+})
+
+test('receipt updates remain usable when local storage writes fail', () => {
+  Object.defineProperty(globalThis, 'localStorage', { value: new ReadOnlyStorage(), configurable: true })
+  const active = receipt('f'.repeat(64))
+
+  assert.doesNotThrow(() => upsertReceipt(active))
+  assert.equal(upsertReceipt(active)[0]?.txHash, active.txHash)
 })
